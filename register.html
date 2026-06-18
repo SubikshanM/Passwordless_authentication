@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CyberShield | Register Passwordless Account</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="register-page">
+
+
+  <div class="auth-container">
+    <div class="brand-header">
+      <div class="brand-logo"><span class="icon-shield"></span></div>
+      <h2 class="brand-title">CyberShield</h2>
+      <p class="brand-subtitle">Passwordless Credentials Registration</p>
+    </div>
+
+    <!-- Alert Banner -->
+    <div class="notification" id="notification"></div>
+
+    <!-- Step 1: Form & Captcha -->
+    <div class="step-content active" id="step1">
+      <form id="registerForm" onsubmit="event.preventDefault(); handleStep1Submit();">
+        <div class="form-group">
+          <label class="form-label" for="username">Username</label>
+          <div class="input-wrapper">
+            <span class="input-icon">👤</span>
+            <input class="form-input" type="text" id="username" placeholder="cyberagent" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="email">Email Address</label>
+          <div class="input-wrapper email-input-wrapper" style="display: flex; gap: 0.5rem; align-items: center;">
+            <div style="position: relative; flex: 1;">
+              <span class="input-icon" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 1.1rem; color: var(--text-muted);">✉️</span>
+              <input class="form-input" type="email" id="email" placeholder="name@company.com" required style="padding-left: 42px; width: 100%;">
+            </div>
+            <button type="button" class="auth-btn" id="sendOtpBtn" style="margin: 0; padding: 0 1rem; height: 46px; font-size: 0.85rem; width: auto; white-space: nowrap; flex-shrink: 0;" onclick="triggerSendOtp()">
+              Send OTP
+            </button>
+          </div>
+        </div>
+
+        <!-- Hidden OTP Input Container -->
+        <div class="form-group" id="emailOtpGroup" style="display: none; margin-top: 1rem;">
+          <label class="form-label" for="emailOtp" style="color: var(--accent-cyan);">Enter Email OTP</label>
+          <div class="input-wrapper" style="display: flex; gap: 0.5rem; align-items: center;">
+            <div style="position: relative; flex: 1;">
+              <span class="input-icon" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 1.1rem; color: var(--text-muted);">🔒</span>
+              <input class="form-input" type="text" id="emailOtp" placeholder="123456" maxlength="6" pattern="\d{6}" style="padding-left: 42px; width: 100%;">
+            </div>
+            <button type="button" class="auth-btn" id="verifyOtpBtn" disabled style="margin: 0; padding: 0 1.25rem; height: 46px; font-size: 0.85rem; width: auto; white-space: nowrap; flex-shrink: 0;" onclick="triggerVerifyOtp()">
+              Verify Code
+            </button>
+          </div>
+          <div style="font-size: 0.80rem; margin-top: 0.5rem; color: var(--text-secondary);">
+            Didn't receive it? <a href="#" onclick="triggerSendOtp(); return false;" style="color: var(--accent-cyan); text-decoration: none; font-weight: 500;">Resend OTP</a>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="phone">Phone Number</label>
+          <div class="input-wrapper" style="display: flex; gap: 0.5rem; align-items: center;">
+            <div class="custom-select-container" style="position: relative; width: fit-content; min-width: 130px; flex-shrink: 0;">
+              <div class="form-input" id="countrySelectTrigger" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding-left: 14px; padding-right: 12px; cursor: pointer; user-select: none; white-space: nowrap; overflow: hidden; width: 100%;">
+                <span id="selectedCountryDisplay" style="color: var(--text-muted);">Select Code</span>
+                <span style="font-size: 0.7rem; color: var(--text-secondary); transition: transform 0.2s;" id="dropdownArrow">▼</span>
+              </div>
+              <input type="hidden" id="countryCode" value="">
+              <div id="countryDropdownMenu" style="display: none; position: absolute; top: calc(100% + 6px); left: 0; width: 280px; max-height: 250px; background: rgba(8, 14, 28, 0.98); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); z-index: 1000; overflow: hidden; flex-direction: column;">
+                <div style="padding: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+                  <input type="text" id="countrySearchInput" placeholder="Search country name or code..." style="width: 100%; padding: 8px 12px; background: rgba(4, 6, 12, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: var(--text-primary); font-size: 0.85rem; outline: none;">
+                </div>
+                <div id="countryOptionsList" style="overflow-y: auto; flex: 1; max-height: 190px; padding: 4px 0;">
+                  <!-- Options are loaded dynamically -->
+                </div>
+              </div>
+            </div>
+            <div style="position: relative; flex: 1;">
+              <span class="input-icon" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 1.1rem; color: var(--text-muted); pointer-events: none;">📞</span>
+              <input class="form-input" type="tel" id="phone" placeholder="(555) 000-0000" style="padding-left: 42px; width: 100%;" required>
+            </div>
+          </div>
+        </div>
+
+        <!-- Secure Backup Passkey Section -->
+        <div style="background: rgba(0, 210, 255, 0.03); border: 1px dashed rgba(0, 210, 255, 0.15); border-radius: 12px; padding: 1.25rem 1rem; margin: 1.25rem 0 1rem 0;">
+          <h4 style="font-size: 0.85rem; font-weight: 600; text-transform: uppercase; color: var(--accent-cyan); margin-bottom: 0.75rem; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px;">
+            🔑 Secure Backup Passkey
+          </h4>
+          <p style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 1rem; line-height: 1.4;">
+            Create a custom backup passkey. You will need this key if you ever lose your authenticator app.
+          </p>
+          <div class="form-group" style="margin-bottom: 0.75rem;">
+            <label class="form-label" for="passkey" style="font-size: 0.75rem;">Create Backup Passkey</label>
+            <div class="input-wrapper" style="position: relative;">
+              <span class="input-icon" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 1.1rem; color: var(--text-muted); pointer-events: none;">🔑</span>
+              <input class="form-input" type="password" id="passkey" placeholder="Enter emergency passkey" style="padding-left: 42px; width: 100%;" required>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" for="passkeyConfirm" style="font-size: 0.75rem;">Retype Passkey to Confirm</label>
+            <div class="input-wrapper" style="position: relative;">
+              <span class="input-icon" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 1.1rem; color: var(--text-muted); pointer-events: none;">🔒</span>
+              <input class="form-input" type="password" id="passkeyConfirm" placeholder="Retype emergency passkey" style="padding-left: 42px; width: 100%;" required>
+            </div>
+          </div>
+        </div>
+
+        <!-- Google reCAPTCHA Widget -->
+        <div id="recaptcha-container" style="margin: 1.5rem 0; display: flex; justify-content: center;"></div>
+
+        <button class="auth-btn" type="submit" id="step1Btn" disabled>
+          Continue Setup <span class="icon-key"></span>
+        </button>
+      </form>
+      
+      <div class="auth-footer">
+        Already have an account? <a href="login.html" class="auth-link">Log In</a>
+      </div>
+    </div>
+
+    <!-- Step 2: TOTP QR Code Setup -->
+    <div class="step-content" id="step2">
+      <div style="text-align: center; margin-bottom: 1.5rem;">
+        <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--accent-cyan);">Set Up Authenticator</h3>
+        <p style="font-size: 0.85rem; color: var(--text-secondary);">Scan the QR code below or enter the key manually into Microsoft Authenticator / Google Authenticator.</p>
+      </div>
+
+      <div class="qr-setup-section">
+        <div class="qr-code-wrapper">
+          <img id="qrCodeImg" style="width: 150px; height: 150px;" alt="Scan to register TOTP" src="" onerror="handleQrError(this)">
+          <div id="qrCodeFallback" style="display: none; flex-direction: column; align-items: center; justify-content: center; color: var(--text-muted); font-size: 0.75rem; text-align: center; width: 150px; height: 150px; border: 2px dashed rgba(255,255,255,0.1); border-radius: 8px;">
+            <span>[QR Server Offline]</span>
+            <span style="margin-top: 10px; color: var(--accent-cyan);">Use Manual Key</span>
+          </div>
+        </div>
+
+        <div class="secret-key-display">
+          <div>
+            <span style="font-size: 0.7rem; color: var(--text-muted); display: block; text-transform: uppercase;">Manual Secret Key</span>
+            <span class="secret-key-text" id="secretKey">GENERATING...</span>
+          </div>
+          <button class="copy-btn" id="copyBtn" title="Copy Secret Key">📋</button>
+        </div>
+        
+        <div class="security-warning-note" style="margin-top: 0.75rem; font-size: 0.75rem; color: var(--danger); opacity: 0.9; text-align: center; line-height: 1.4; display: flex; align-items: flex-start; gap: 8px; padding: 10px 14px; background: rgba(255, 74, 90, 0.08); border: 1px solid rgba(255, 74, 90, 0.15); border-radius: 8px; width: 100%;">
+          <span style="margin-top: 1px; flex-shrink: 0; font-size: 0.85rem;">⚠️</span>
+          <span style="text-align: left;"><b>WARNING:</b> Never share this secret key with anyone. Sharing this code can allow unauthorized access to your account. You bear sole responsibility for credential safety.</span>
+        </div>
+      </div>
+
+      <div style="text-align: center; margin-bottom: 1rem;">
+        <label class="form-label">Enter 6-Digit Code from App</label>
+        <div class="otp-container">
+          <input type="text" class="otp-input" maxlength="1" data-index="0">
+          <input type="text" class="otp-input" maxlength="1" data-index="1">
+          <input type="text" class="otp-input" maxlength="1" data-index="2">
+          <input type="text" class="otp-input" maxlength="1" data-index="3">
+          <input type="text" class="otp-input" maxlength="1" data-index="4">
+          <input type="text" class="otp-input" maxlength="1" data-index="5">
+        </div>
+      </div>
+
+      <button class="auth-btn btn-secondary" onclick="goBackToStep1()">
+        Back
+      </button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    let tempUser = {
+      username: '',
+      email: '',
+      phone: '',
+      secret: ''
+    };
+
+    let emailVerified = false;
+
+    // Enable/disable form submit button in Step 1
+    const usernameInput = document.getElementById("username");
+    const emailInput = document.getElementById("email");
+    const phoneInput = document.getElementById("phone");
+    const step1Btn = document.getElementById("step1Btn");
+
+    const passkeyInput = document.getElementById("passkey");
+    const passkeyConfirmInput = document.getElementById("passkeyConfirm");
+
+    function checkStep1Inputs() {
+      const countryCode = document.getElementById("countryCode").value;
+      const passkey = passkeyInput.value;
+      const passkeyConfirm = passkeyConfirmInput.value;
+
+      if (
+        usernameInput.value.trim() !== "" &&
+        emailInput.value.trim() !== "" &&
+        phoneInput.value.trim() !== "" &&
+        countryCode !== "" &&
+        passkey.trim() !== "" &&
+        passkey === passkeyConfirm &&
+        captchaVerified &&
+        emailVerified
+      ) {
+        step1Btn.disabled = false;
+      } else {
+        step1Btn.disabled = true;
+      }
+    }
+
+    usernameInput.addEventListener("input", checkStep1Inputs);
+    phoneInput.addEventListener("input", checkStep1Inputs);
+    passkeyInput.addEventListener("input", checkStep1Inputs);
+    passkeyConfirmInput.addEventListener("input", checkStep1Inputs);
+
+    // If they modify the email field after verification/sending, we reset the verification state
+    emailInput.addEventListener("input", () => {
+      if (emailVerified || document.getElementById("emailOtpGroup").style.display !== "none") {
+        emailVerified = false;
+        
+        // Reset verify button and fields
+        emailInput.readOnly = false;
+        document.getElementById("emailOtp").readOnly = false;
+        document.getElementById("emailOtp").value = "";
+        
+        const sendOtpBtn = document.getElementById("sendOtpBtn");
+        sendOtpBtn.disabled = false;
+        sendOtpBtn.innerHTML = "Send OTP";
+        sendOtpBtn.style.background = "";
+        sendOtpBtn.style.borderColor = "";
+
+        const verifyOtpBtn = document.getElementById("verifyOtpBtn");
+        verifyOtpBtn.disabled = true;
+        verifyOtpBtn.innerHTML = "Verify Code";
+        verifyOtpBtn.style.background = "";
+
+        document.getElementById("emailOtpGroup").style.display = "none";
+        checkStep1Inputs();
+      }
+    });
+
+    const emailOtpInput = document.getElementById("emailOtp");
+    const verifyOtpBtn = document.getElementById("verifyOtpBtn");
+
+    emailOtpInput.addEventListener("input", () => {
+      // Keep only numbers
+      emailOtpInput.value = emailOtpInput.value.replace(/\D/g, "");
+      
+      if (emailOtpInput.value.trim().length === 6 && !emailVerified) {
+        verifyOtpBtn.disabled = false;
+      } else {
+        verifyOtpBtn.disabled = true;
+      }
+    });
+
+    // Initialize Captcha
+    setupCaptcha(() => {
+      checkStep1Inputs();
+    });
+
+    // Inline OTP trigger
+    async function triggerSendOtp() {
+      const emailVal = emailInput.value.trim();
+      if (!emailVal || !emailInput.checkValidity()) {
+        showNotification("Please enter a valid email address first.", "error");
+        return;
+      }
+
+      const sendOtpBtn = document.getElementById("sendOtpBtn");
+      sendOtpBtn.disabled = true;
+      const originalHtml = sendOtpBtn.innerHTML;
+      sendOtpBtn.innerHTML = "Sending...";
+
+      try {
+        const response = await fetch('/api/auth/send-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: emailVal })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          tempUser.email = emailVal;
+          document.getElementById("emailOtpGroup").style.display = "block";
+          showNotification("Verification OTP sent to your email.", "success");
+          
+          if (data.devOtp) {
+            console.log("DEV MODE: Email OTP is " + data.devOtp);
+            showNotification("Dev Mode: Code is " + data.devOtp, "info");
+          }
+        } else {
+          showNotification(data.message || "Failed to send OTP.", "error");
+        }
+      } catch (err) {
+        console.error(err);
+        showNotification("Server error connecting to backend.", "error");
+      } finally {
+        sendOtpBtn.disabled = false;
+        sendOtpBtn.innerHTML = originalHtml;
+      }
+    }
+
+    // Inline OTP verify
+    async function triggerVerifyOtp() {
+      const otpVal = document.getElementById("emailOtp").value.trim();
+      if (!otpVal || otpVal.length !== 6) {
+        showNotification("Please enter the 6-digit OTP code.", "error");
+        return;
+      }
+
+      const verifyOtpBtn = document.getElementById("verifyOtpBtn");
+      verifyOtpBtn.disabled = true;
+      const originalHtml = verifyOtpBtn.innerHTML;
+      verifyOtpBtn.innerHTML = "Verifying...";
+
+      try {
+        const response = await fetch('/api/auth/verify-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: tempUser.email, otpCode: otpVal })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          emailVerified = true;
+          showNotification("Email verified successfully!", "success");
+          
+          // Lock email and verification elements
+          emailInput.readOnly = true;
+          document.getElementById("emailOtp").readOnly = true;
+          
+          const sendOtpBtn = document.getElementById("sendOtpBtn");
+          sendOtpBtn.disabled = true;
+          sendOtpBtn.innerHTML = "Verified ✓";
+          sendOtpBtn.style.background = "rgba(0, 210, 255, 0.1)";
+          sendOtpBtn.style.borderColor = "rgba(0, 210, 255, 0.4)";
+          
+          verifyOtpBtn.disabled = true;
+          verifyOtpBtn.innerHTML = "Verified ✓";
+          verifyOtpBtn.style.background = "rgba(0, 210, 255, 0.1)";
+          
+          checkStep1Inputs();
+        } else {
+          showNotification(data.message || "Invalid OTP code.", "error");
+          verifyOtpBtn.disabled = false;
+          verifyOtpBtn.innerHTML = originalHtml;
+        }
+      } catch (err) {
+        console.error(err);
+        showNotification("Error verifying OTP.", "error");
+        verifyOtpBtn.disabled = false;
+        verifyOtpBtn.innerHTML = originalHtml;
+      }
+    }
+
+    // Step 1: Submit inputs (since already verified OTP, directly show QR)
+    function handleStep1Submit() {
+      const selectedCountryCode = document.getElementById("countryCode").value;
+      const passkey = passkeyInput.value;
+      const passkeyConfirm = passkeyConfirmInput.value;
+
+      if (passkey !== passkeyConfirm) {
+        showNotification("Backup passkeys do not match.", "error");
+        return;
+      }
+
+      tempUser.username = usernameInput.value.trim();
+      tempUser.email = emailInput.value.trim();
+      tempUser.phone = selectedCountryCode + " " + phoneInput.value.trim();
+      tempUser.backupPasskey = passkey;
+
+      // Generate base32 secret for TOTP setup
+      tempUser.secret = generateBase32Secret();
+      document.getElementById("secretKey").textContent = tempUser.secret;
+      
+      // Construct OTPAuth URL
+      const label = encodeURIComponent("CyberShield:" + tempUser.email);
+      const issuer = encodeURIComponent("CyberShield");
+      const otpauthUrl = `otpauth://totp/${label}?secret=${tempUser.secret}&issuer=${issuer}`;
+      
+      // Load QR Code
+      document.getElementById("qrCodeImg").src = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" + encodeURIComponent(otpauthUrl);
+      document.getElementById("qrCodeImg").style.display = "block";
+      document.getElementById("qrCodeFallback").style.display = "none";
+      
+      // Transition to Step 2 (TOTP Setup)
+      document.getElementById("step1").classList.remove("active");
+      document.getElementById("step2").classList.add("active");
+      
+      setupCopyToClipboard();
+      clearOtpInputs();
+      setupOtpInputs(async (code) => {
+        // Verify TOTP code using client Web Crypto
+        const isValid = await verifyTOTP(tempUser.secret, code);
+        if (isValid) {
+          await completeBackendRegistration();
+        } else {
+          showNotification("Invalid TOTP verification code. Try again.", "error");
+          clearOtpInputs();
+        }
+      });
+    }
+
+    // Complete Registration in backend database
+    async function completeBackendRegistration() {
+      try {
+        const response = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: tempUser.username,
+            email: tempUser.email,
+            phone: tempUser.phone,
+            totpSecret: tempUser.secret,
+            backupPasskey: tempUser.backupPasskey
+          })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          showNotification("Verification successful! Account registered in database.", "success");
+          
+          // Set session storage for smooth client-side transition
+          sessionStorage.setItem("active_user", tempUser.email);
+          
+          setTimeout(() => {
+            window.location.href = "login.html";
+          }, 1500);
+        } else {
+          showNotification(data.message || "Failed to complete registration.", "error");
+        }
+      } catch (err) {
+        console.error(err);
+        showNotification("Error writing user to database.", "error");
+      }
+    }
+
+    function goBackToStep1() {
+      document.getElementById("step2").classList.remove("active");
+      document.getElementById("step1").classList.add("active");
+      // Reset captcha status so they must re-verify (cybersecurity practice)
+      captchaVerified = false;
+      if (typeof grecaptcha !== 'undefined') {
+        grecaptcha.reset();
+      }
+      checkStep1Inputs();
+    }
+
+    function handleQrError(img) {
+      img.style.display = "none";
+      document.getElementById("qrCodeFallback").style.display = "flex";
+    }
+
+    let allCountries = [];
+
+    // Fetch and populate country codes dynamically
+    async function loadCountryCodes() {
+      const trigger = document.getElementById("countrySelectTrigger");
+      const menu = document.getElementById("countryDropdownMenu");
+      const searchInput = document.getElementById("countrySearchInput");
+      const listContainer = document.getElementById("countryOptionsList");
+      const hiddenInput = document.getElementById("countryCode");
+      const displaySpan = document.getElementById("selectedCountryDisplay");
+      const arrow = document.getElementById("dropdownArrow");
+
+      try {
+        const response = await fetch("/countries.json");
+        if (!response.ok) throw new Error("Status " + response.status);
+        allCountries = await response.json();
+        
+        // Render all countries initially
+        renderOptions(allCountries);
+        
+        // Toggle dropdown on click
+        trigger.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const isOpen = menu.style.display === "flex";
+          closeAllDropdowns();
+          if (!isOpen) {
+            menu.style.display = "flex";
+            arrow.style.transform = "rotate(180deg)";
+            searchInput.value = "";
+            renderOptions(allCountries);
+            setTimeout(() => searchInput.focus(), 50);
+          }
+        });
+
+        // Search filtering
+        searchInput.addEventListener("input", () => {
+          const query = searchInput.value.toLowerCase().trim();
+          const filtered = allCountries.filter(c => 
+            c.name.toLowerCase().includes(query) || 
+            c.dial_code.includes(query)
+          );
+          renderOptions(filtered);
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener("click", () => {
+          closeAllDropdowns();
+        });
+
+        // Prevent dropdown close when clicking inside the menu
+        menu.addEventListener("click", (e) => {
+          e.stopPropagation();
+        });
+
+      } catch (err) {
+        console.error("Failed to load country codes:", err);
+      }
+
+      function renderOptions(list) {
+        listContainer.innerHTML = "";
+        if (list.length === 0) {
+          const empty = document.createElement("div");
+          empty.style.padding = "10px 14px";
+          empty.style.color = "var(--text-muted)";
+          empty.style.fontSize = "0.85rem";
+          empty.textContent = "No countries found";
+          listContainer.appendChild(empty);
+          return;
+        }
+
+        list.forEach(country => {
+          const item = document.createElement("div");
+          item.style.padding = "8px 14px";
+          item.style.cursor = "pointer";
+          item.style.display = "flex";
+          item.style.justifyContent = "space-between";
+          item.style.alignItems = "center";
+          item.style.fontSize = "0.85rem";
+          item.style.color = "var(--text-primary)";
+          item.style.transition = "background 0.2s";
+          
+          item.innerHTML = `
+            <span>${country.flag} ${country.name}</span>
+            <span style="color: var(--accent-cyan); font-weight: 500;">${country.dial_code}</span>
+          `;
+          
+          item.addEventListener("mouseenter", () => {
+            item.style.background = "rgba(255, 255, 255, 0.08)";
+          });
+          item.addEventListener("mouseleave", () => {
+            item.style.background = "transparent";
+          });
+
+          item.addEventListener("click", () => {
+            hiddenInput.value = country.dial_code;
+            displaySpan.textContent = `${country.flag} ${country.name} (${country.dial_code})`;
+            displaySpan.style.color = "var(--text-primary)";
+            closeAllDropdowns();
+            checkStep1Inputs();
+          });
+
+          listContainer.appendChild(item);
+        });
+      }
+
+      function closeAllDropdowns() {
+        menu.style.display = "none";
+        arrow.style.transform = "rotate(0deg)";
+      }
+    }
+
+    // Call dynamic population immediately
+    loadCountryCodes();
+  </script>
+</body>
+</html>

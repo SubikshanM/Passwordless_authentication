@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CyberShield | Magic Recovery Verification</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="login-page">
+
+  <div class="auth-container">
+    <div class="brand-header">
+      <div class="brand-logo"><span class="icon-lock"></span></div>
+      <h2 class="brand-title">CyberShield</h2>
+      <p class="brand-subtitle">Emergency Recovery Portal</p>
+    </div>
+
+    <!-- Alert Banner -->
+    <div class="notification" id="notification"></div>
+
+    <div class="step-content active" id="magicLoginStep">
+      <div style="text-align: center; margin-bottom: 1.5rem;">
+        <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--accent-cyan);">Identity Verification</h3>
+        <p style="font-size: 0.85rem; color: var(--text-secondary);">Please enter your backup passkey to verify your identity and complete the authentication process.</p>
+      </div>
+
+      <form id="magicLoginForm" onsubmit="event.preventDefault(); handleMagicSubmit();">
+        <div class="form-group">
+          <label class="form-label" for="magicPasskey">Backup Passkey</label>
+          <div class="input-wrapper">
+            <span class="input-icon">🔑</span>
+            <input class="form-input" type="password" id="magicPasskey" placeholder="Enter emergency passkey" required>
+          </div>
+        </div>
+
+        <button class="auth-btn" type="submit" id="magicSubmitBtn">
+          Verify & Log In <span class="icon-shield"></span>
+        </button>
+      </form>
+
+      <div class="auth-footer">
+        Return to standard login? <a href="login.html" class="auth-link">Login Page</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Utility to show notification alerts
+    function showNotification(msg, type = 'info') {
+      const banner = document.getElementById("notification");
+      banner.textContent = msg;
+      banner.className = `notification ${type} show`;
+      
+      // Auto hide after 4 seconds
+      setTimeout(() => {
+        banner.classList.remove("show");
+      }, 4000);
+    }
+
+    // Get token from URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+
+    if (!token) {
+      showNotification("Error: Recovery token is missing. Please request a new magic link.", "error");
+      document.getElementById("magicSubmitBtn").disabled = true;
+      document.getElementById("magicPasskey").disabled = true;
+    }
+
+    async function handleMagicSubmit() {
+      const passkeyInput = document.getElementById("magicPasskey");
+      const passkey = passkeyInput.value;
+      if (!passkey) {
+        showNotification("Please enter your backup passkey.", "error");
+        return;
+      }
+
+      const submitBtn = document.getElementById("magicSubmitBtn");
+      submitBtn.disabled = true;
+      const originalHtml = submitBtn.innerHTML;
+      submitBtn.innerHTML = "Verifying Credentials...";
+
+      try {
+        const response = await fetch('/api/auth/magic-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, passkey })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+          showNotification("Identity verified! Entering portal...", "success");
+          
+          // Save active email session
+          sessionStorage.setItem("active_session", data.email);
+          
+          setTimeout(() => {
+            window.location.href = "dashboard.html";
+          }, 1500);
+        } else {
+          showNotification(data.message || "Failed to authenticate.", "error");
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = originalHtml;
+        }
+      } catch (err) {
+        console.error(err);
+        showNotification("Server communication error.", "error");
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalHtml;
+      }
+    }
+  </script>
+</body>
+</html>

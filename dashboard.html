@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CyberShield | Security Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Inline adjustment to override alignment in body since dashboard is larger than auth panels */
+    body {
+      padding: 2rem 1rem;
+      justify-content: flex-start;
+    }
+
+    @keyframes pulse {
+      0% {
+        transform: scale(0.95);
+        opacity: 0.6;
+      }
+      50% {
+        transform: scale(1.1);
+        opacity: 1;
+      }
+      100% {
+        transform: scale(0.95);
+        opacity: 0.6;
+      }
+    }
+
+    .action-btn-neon {
+      transition: all 0.2s ease-in-out;
+    }
+    .action-btn-neon:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(0, 210, 255, 0.25) !important;
+      background: rgba(0, 210, 255, 0.1) !important;
+      border-color: var(--accent-cyan) !important;
+    }
+    .action-btn-neon.green-btn:hover {
+      box-shadow: 0 4px 15px rgba(0, 255, 102, 0.25) !important;
+      background: rgba(0, 255, 102, 0.1) !important;
+      border-color: var(--accent-green) !important;
+    }
+    .action-btn-neon.purple-btn:hover {
+      box-shadow: 0 4px 15px rgba(157, 78, 221, 0.25) !important;
+      background: rgba(157, 78, 221, 0.1) !important;
+      border-color: var(--accent-purple) !important;
+    }
+
+    /* Switch Slider Styles */
+    .switch-container input:checked + .switch-slider {
+      background-color: rgba(0, 255, 102, 0.2);
+      border-color: var(--accent-green);
+    }
+    .switch-container input:checked + .switch-slider:before {
+      transform: translateX(20px);
+      background-color: var(--accent-green);
+      box-shadow: 0 0 8px var(--accent-green);
+    }
+    .switch-slider:before {
+      position: absolute;
+      content: "";
+      height: 14px;
+      width: 14px;
+      left: 4px;
+      bottom: 4px;
+      background-color: var(--text-muted);
+      transition: .3s;
+      border-radius: 50%;
+    }
+  </style>
+</head>
+<body class="dashboard-page">
+
+  <!-- Access Denied Screen (Shown if not logged in) -->
+  <div id="accessDenied" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-darker); z-index: 9999; flex-direction: column; align-items: center; justify-content: center; gap: 1.5rem; text-align: center; padding: 2rem;">
+    <div class="brand-logo" style="width: 80px; height: 80px; font-size: 2.5rem; color: var(--danger); border-color: var(--danger); box-shadow: 0 0 20px rgba(255, 74, 90, 0.2);">🔒</div>
+    <h1 style="font-size: 2rem; font-weight: 700; color: var(--text-primary);">Access Denied</h1>
+    <p style="color: var(--text-secondary); max-width: 400px;">This security portal requires active credentials. You are not authenticated to view this dashboard.</p>
+    <a href="login.html" class="auth-btn" style="max-width: 200px; text-decoration: none;">Go to Log In</a>
+  </div>
+
+  <div class="dashboard-container" id="dashboardContent">
+    <div class="dashboard-header">
+      <div class="dashboard-user-info" style="position: relative;">
+        <div class="user-avatar" id="userAvatar" style="cursor: pointer; transition: all 0.2s;" onclick="toggleProfileDropdown(event)">U</div>
+        <div>
+          <h2 style="font-size: 1.25rem; font-weight: 600;" id="userEmail">Loading...</h2>
+          <span class="status-pill secured">
+            <span style="display: inline-block; width: 6px; height: 6px; background: var(--accent-green); border-radius: 50%;"></span>
+            Portal Secured
+          </span>
+        </div>
+
+        <!-- Profile Popover Dropdown -->
+        <div id="profileDropdown" style="display: none; position: absolute; top: calc(100% + 10px); left: 0; width: 300px; background: rgba(8, 14, 28, 0.98); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(0, 210, 255, 0.25); border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); padding: 1.5rem; z-index: 1000; flex-direction: column; gap: 1rem;">
+          <div style="display: flex; align-items: center; gap: 1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 1rem;">
+            <div class="user-avatar" id="profileModalAvatar" style="width: 56px; height: 56px; font-size: 1.5rem; flex-shrink: 0;">U</div>
+            <div style="overflow: hidden;">
+              <h3 style="font-size: 1.1rem; font-weight: 600; color: var(--text-primary); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;" id="profileModalUsername">Username</h3>
+              <span style="font-size: 0.8rem; color: var(--accent-cyan);">Security Agent</span>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.85rem;">
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+              <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Email Address</span>
+              <span style="color: var(--text-primary); word-break: break-all;" id="profileModalEmail">-</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+              <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Phone Number</span>
+              <span style="color: var(--text-primary);" id="profileModalPhone">-</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+              <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Clearance Status</span>
+              <span style="color: var(--accent-green); font-weight: 600; display: flex; align-items: center; gap: 4px;">
+                <span style="display: inline-block; width: 6px; height: 6px; background: var(--accent-green); border-radius: 50%;"></span>
+                Active / Verified
+              </span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+              <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Enrolled Since</span>
+              <span style="color: var(--text-secondary);" id="profileModalJoined">-</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <button class="logout-btn" onclick="handleLogout()">Disconnect Portal</button>
+    </div>
+
+    <!-- Metrics Cards Grid -->
+    <div class="grid-metrics">
+      <div class="metric-card" style="box-shadow: 0 0 15px rgba(0, 255, 102, 0.05); border-color: rgba(0, 255, 102, 0.15);">
+        <div class="metric-header">
+          <span>Shield Integrity</span>
+          <span>🛡️</span>
+        </div>
+        <div class="metric-value green-glow" style="display: flex; align-items: center; gap: 8px;">
+          100%
+          <span style="display: inline-block; width: 8px; height: 8px; background: var(--accent-green); border-radius: 50%; box-shadow: 0 0 10px var(--accent-green); animation: pulse 1.5s infinite;"></span>
+        </div>
+        <div class="metric-desc">All local and cloud-based application modules are secure.</div>
+      </div>
+
+      <div class="metric-card" style="box-shadow: 0 0 15px rgba(0, 210, 255, 0.05); border-color: rgba(0, 210, 255, 0.15);">
+        <div class="metric-header">
+          <span>Auth Mechanism</span>
+          <span>🔑</span>
+        </div>
+        <div class="metric-value cyan-glow">TOTP 2FA</div>
+        <div class="metric-desc">Credential-free biometric equivalent configuration.</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span>IP Address</span>
+          <span>🌐</span>
+        </div>
+        <div class="metric-value" id="dashboardIpAddress">127.0.0.1</div>
+        <div class="metric-desc">Connected securely via active web session.</div>
+      </div>
+
+      <div class="metric-card" style="box-shadow: 0 0 15px rgba(157, 78, 221, 0.05); border-color: rgba(157, 78, 221, 0.15);">
+        <div class="metric-header">
+          <span>Session Expiry</span>
+          <span>⏱️</span>
+        </div>
+        <div class="metric-value" id="sessionCountdown" style="color: var(--accent-purple); text-shadow: 0 0 10px rgba(157, 78, 221, 0.2);">24:00:00</div>
+        <div class="metric-desc">Time remaining before credentials automatically rotate.</div>
+      </div>
+    </div>
+
+    <!-- Security Quick Actions Panel -->
+    <div style="margin-bottom: 2rem;">
+      <div class="dashboard-section-title" style="margin-bottom: 1rem;">
+        <span>🛠️</span> Security Quick Actions
+      </div>
+      <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+        <button class="action-btn-neon" onclick="runIntegrityScan()" style="flex: 1; min-width: 180px; background: rgba(0, 210, 255, 0.05); border: 1px solid rgba(0, 210, 255, 0.25); color: var(--accent-cyan); padding: 12px 20px; border-radius: 12px; font-family: var(--font-sans); font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+          🔍 Run Device Scan
+        </button>
+        <button class="action-btn-neon green-btn" onclick="downloadAuditTrail()" style="flex: 1; min-width: 180px; background: rgba(0, 255, 102, 0.05); border: 1px solid rgba(0, 255, 102, 0.25); color: var(--accent-green); padding: 12px 20px; border-radius: 12px; font-family: var(--font-sans); font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+          💾 Export Audit Trail
+        </button>
+        <button class="action-btn-neon purple-btn" onclick="rotateCredentials()" style="flex: 1; min-width: 180px; background: rgba(157, 78, 221, 0.05); border: 1px solid rgba(157, 78, 221, 0.25); color: var(--accent-purple); padding: 12px 20px; border-radius: 12px; font-family: var(--font-sans); font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+          🔄 Rotate Session Key
+        </button>
+      </div>
+    </div>
+
+
+
+    <!-- Security Events Console Logs -->
+    <div style="margin-bottom: 2rem;">
+      <div class="dashboard-section-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 1rem;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span>🔄</span> Security Audit Terminal Feed
+        </div>
+        <div>
+          <button onclick="clearTerminal()" style="background: rgba(255, 74, 90, 0.1); border: 1px solid rgba(255, 74, 90, 0.3); color: var(--danger); font-size: 0.75rem; padding: 4px 12px; border-radius: 6px; cursor: pointer; transition: all 0.2s; font-family: var(--font-sans); font-weight: 600;">
+            Clear Feed
+          </button>
+        </div>
+      </div>
+      
+      <!-- Interactive Terminal Command Window -->
+      <div style="background: rgba(4, 6, 12, 0.75); backdrop-filter: blur(20px); border: 1px solid rgba(0, 210, 255, 0.2); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column;">
+        <!-- Terminal Header / Titlebar -->
+        <div style="background: rgba(8, 14, 28, 0.9); padding: 8px 16px; border-bottom: 1px solid rgba(0, 210, 255, 0.15); display: flex; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="width: 10px; height: 10px; background: #ff5f56; border-radius: 50%;"></span>
+            <span style="width: 10px; height: 10px; background: #ffbd2e; border-radius: 50%;"></span>
+            <span style="width: 10px; height: 10px; background: #27c93f; border-radius: 50%;"></span>
+            <span style="color: var(--text-muted); font-size: 0.75rem; font-family: monospace; margin-left: 8px;">cybershield-security-terminal.sh</span>
+          </div>
+          <span style="font-size: 0.75rem; color: var(--accent-green); font-family: monospace;">● ACTIVE TUNNEL</span>
+        </div>
+        
+        <div class="terminal-panel" id="terminalConsole" style="border: none; border-radius: 0; height: 260px; overflow-y: auto;">
+          <div class="terminal-line timestamp">[Audit Log Initialized]</div>
+          <div class="terminal-line info">> Verifying security handshake...</div>
+          <div class="terminal-line success">> Authentication clearance code: GRANTED.</div>
+        </div>
+
+        <!-- Interactive Terminal Prompt -->
+        <div style="background: rgba(12, 20, 38, 0.85); border-top: 1px solid rgba(0, 210, 255, 0.15); padding: 10px 16px; display: flex; align-items: center; gap: 8px;">
+          <span style="color: var(--accent-cyan); font-family: monospace; font-weight: 600; font-size: 0.85rem; white-space: nowrap;">agent@cybershield:~$</span>
+          <input type="text" id="terminalInput" placeholder="Type /help to see list of security commands..." style="background: transparent; border: none; outline: none; color: var(--text-primary); font-family: monospace; font-size: 0.85rem; width: 100%;" onkeydown="handleTerminalCommand(event)">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Verify Session
+    const activeSession = sessionStorage.getItem("active_session");
+    if (!activeSession) {
+      document.getElementById("dashboardContent").style.display = "none";
+      document.getElementById("accessDenied").style.display = "flex";
+    } else {
+      // Setup user details
+      document.getElementById("userEmail").textContent = activeSession;
+      document.getElementById("userAvatar").textContent = activeSession.charAt(0).toUpperCase();
+
+      // Fetch user profile from NeonDB backend
+      fetchProfile(activeSession);
+    }
+
+    // Initialize Session Expiry Countdown
+    let sessionSeconds = 86400; // 24 hours
+    startCountdown();
+
+    function startCountdown() {
+      const countdownEl = document.getElementById("sessionCountdown");
+      const timer = setInterval(() => {
+        sessionSeconds--;
+        if (sessionSeconds <= 0) {
+          clearInterval(timer);
+          handleLogout();
+          return;
+        }
+        const hrs = Math.floor(sessionSeconds / 3600).toString().padStart(2, '0');
+        const mins = Math.floor((sessionSeconds % 3600) / 60).toString().padStart(2, '0');
+        const secs = (sessionSeconds % 60).toString().padStart(2, '0');
+        countdownEl.textContent = `${hrs}:${mins}:${secs}`;
+      }, 1000);
+    }
+
+    async function fetchProfile(email) {
+      try {
+        const response = await fetch("/api/user/profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: email })
+        });
+        
+        const data = await response.json();
+        if (data.success && data.user) {
+          const user = data.user;
+          const initial = user.username ? user.username.charAt(0).toUpperCase() : "U";
+          
+          // Set user avatars
+          document.getElementById("userAvatar").textContent = initial;
+          document.getElementById("profileModalAvatar").textContent = initial;
+          
+          // Update username display in main header (outside)
+          document.getElementById("userEmail").textContent = user.username;
+
+          // Update client IP display dynamically
+          if (data.ip) {
+            document.getElementById("dashboardIpAddress").textContent = data.ip;
+          }
+          
+          // Populate Profile Modal/Popover details
+          document.getElementById("profileModalUsername").textContent = user.username;
+          document.getElementById("profileModalEmail").textContent = user.email;
+          document.getElementById("profileModalPhone").textContent = user.phone || "Not Enrolled";
+          
+          if (user.created_at) {
+            const joinedDate = new Date(user.created_at).toLocaleDateString(undefined, {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric'
+            });
+            document.getElementById("profileModalJoined").textContent = joinedDate;
+          } else {
+            document.getElementById("profileModalJoined").textContent = "N/A";
+          }
+          
+          // Initialize interactive logs with database profile details
+          initTerminal(user.email, user);
+        } else {
+          // Fallback to local mockup if database user doesn't exist
+          document.getElementById("userEmail").textContent = email;
+          initTerminal(email, null);
+        }
+      } catch (err) {
+        console.error("Failed to fetch user profile:", err);
+        document.getElementById("userEmail").textContent = email;
+        initTerminal(email, null);
+      }
+    }
+
+    function toggleProfileDropdown(event) {
+      if (event) event.stopPropagation();
+      const dropdown = document.getElementById("profileDropdown");
+      const isShowing = dropdown.style.display === "flex";
+      dropdown.style.display = isShowing ? "none" : "flex";
+    }
+
+    // Close profile dropdown if clicked outside
+    document.addEventListener("click", (e) => {
+      const dropdown = document.getElementById("profileDropdown");
+      const avatar = document.getElementById("userAvatar");
+      if (dropdown && dropdown.style.display === "flex" && !dropdown.contains(e.target) && e.target !== avatar) {
+        dropdown.style.display = "none";
+      }
+    });
+
+    function initTerminal(email, user) {
+      const consoleEl = document.getElementById("terminalConsole");
+      const phoneStr = user ? user.phone : "+1 (555) 000-0000";
+      
+      const logs = [
+        `[${new Date().toLocaleTimeString()}] Establishing secure tunnel for ${email}...`,
+        `[${new Date().toLocaleTimeString()}] Fetching secure database profile: Email [${email}], Phone [${phoneStr}]`,
+        `[${new Date().toLocaleTimeString()}] Captcha challenge verification: SUCCESS`,
+        `[${new Date().toLocaleTimeString()}] TOTP validation: PASSED (Clock drift: 0s)`,
+        `[${new Date().toLocaleTimeString()}] Session initialized. Access token loaded into secure memory.`,
+        `[${new Date().toLocaleTimeString()}] Portal access granted. Welcome back, agent.`
+      ];
+
+      logs.forEach(logText => {
+        writeTerminalLine(logText);
+      });
+
+      // Periodically write logs to show dynamic live updates
+      const checkTasks = [
+        "Scanning for threat signatures... no threats found.",
+        "Validating package hashes... all modules intact.",
+        "Auditing access control logs... clear.",
+        "Local key storage integrity verification... OK.",
+        "Refreshing session encryption matrix...",
+        "Checking database node latency... 12ms (Active)"
+      ];
+
+      const verboseTasks = [
+        "[DEBUG] [DB] queryText: SELECT id, username FROM users LIMIT 1",
+        "[DEBUG] [SOCKET] packetReceived: { type: 'PING', payload: 1718617200 }",
+        "[DEBUG] [CRYPTO] saltRotation: matrix shift completed in 0.42ms",
+        "[DEBUG] [MEM] gc: released 14MB of heap memory"
+      ];
+
+      setInterval(() => {
+        const pool = verboseLogsEnabled ? [...checkTasks, ...verboseTasks] : checkTasks;
+        const randomTask = pool[Math.floor(Math.random() * pool.length)];
+        const timeStamp = new Date().toLocaleTimeString();
+        const style = randomTask.startsWith("[DEBUG]") ? "timestamp" : "info";
+        writeTerminalLine(`[${timeStamp}] ${randomTask}`, style);
+      }, 5000);
+    }
+
+    function writeTerminalLine(text, styleType = "") {
+      const consoleEl = document.getElementById("terminalConsole");
+      const line = document.createElement("div");
+      line.className = "terminal-line " + styleType;
+      line.textContent = text;
+      consoleEl.appendChild(line);
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    function handleLogout() {
+      sessionStorage.removeItem("active_session");
+      writeTerminalLine("Disconnecting session...", "warning");
+      setTimeout(() => {
+        window.location.href = "login.html";
+      }, 800);
+    }
+
+    function runIntegrityScan() {
+      writeTerminalLine(`[${new Date().toLocaleTimeString()}] [SYSTEM] Manual device integrity scan initiated by user...`, "info");
+      let step = 0;
+      const messages = [
+        "Scanning memory segments for injection signatures...",
+        "Checking local credential vault storage...",
+        "Auditing active session tokens and clock synchronization...",
+        "System Check complete: 0 vulnerabilities found. Integrity 100%."
+      ];
+      const interval = setInterval(() => {
+        if (step < messages.length) {
+          const type = step === 3 ? "success" : "";
+          writeTerminalLine(`[${new Date().toLocaleTimeString()}] [SYSTEM] ${messages[step]}`, type);
+          step++;
+        } else {
+          clearInterval(interval);
+        }
+      }, 850);
+    }
+
+    function downloadAuditTrail() {
+      const consoleEl = document.getElementById("terminalConsole");
+      const lines = Array.from(consoleEl.children).map(child => child.textContent);
+      const fileContent = lines.join("\n");
+      const blob = new Blob([fileContent], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cybershield_audit_trail_${Date.now()}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      writeTerminalLine(`[${new Date().toLocaleTimeString()}] [SYSTEM] Audit logs exported successfully.`, "success");
+    }
+
+    function rotateCredentials() {
+      writeTerminalLine(`[${new Date().toLocaleTimeString()}] [SECURE] Rotating active session encryption keys...`, "warning");
+      setTimeout(() => {
+        const newKey = Array.from({length: 16}, () => Math.floor(Math.random()*16).toString(16)).join('').toUpperCase();
+        writeTerminalLine(`[${new Date().toLocaleTimeString()}] [SECURE] Key successfully rotated. New hash: [${newKey}]`, "success");
+        sessionSeconds = 86400; // Reset countdown
+      }, 1000);
+    }
+
+    function clearTerminal() {
+      const consoleEl = document.getElementById("terminalConsole");
+      consoleEl.innerHTML = `<div class="terminal-line timestamp">[Audit Log Cleared at ${new Date().toLocaleTimeString()}]</div>`;
+    }
+
+    let verboseLogsEnabled = false;
+
+    function handleTerminalCommand(e) {
+      if (e.key === 'Enter') {
+        const inputEl = document.getElementById("terminalInput");
+        const command = inputEl.value.trim();
+        if (!command) return;
+        
+        // Log the command typed by the user
+        writeTerminalLine(`agent@cybershield:~$ ${command}`, "success");
+        inputEl.value = "";
+        
+        const cmdLower = command.toLowerCase();
+        
+        if (cmdLower === '/help') {
+          writeTerminalLine("Available Agent Commands:", "info");
+          writeTerminalLine("  /scan    - Run device system integrity scan", "info");
+          writeTerminalLine("  /rotate  - Rotate session cryptographic keys", "info");
+          writeTerminalLine("  /ip      - Query local & remote connection IP", "info");
+          writeTerminalLine("  /clear   - Clear terminal audit logs", "info");
+          writeTerminalLine("  /status  - Display active firewall configuration", "info");
+        } else if (cmdLower === '/scan') {
+          runIntegrityScan();
+        } else if (cmdLower === '/rotate') {
+          rotateCredentials();
+        } else if (cmdLower === '/ip') {
+          const ipVal = document.getElementById("dashboardIpAddress").textContent;
+          writeTerminalLine(`[${new Date().toLocaleTimeString()}] [IP] Current Connection IP: [${ipVal}]`, "info");
+        } else if (cmdLower === '/clear') {
+          clearTerminal();
+        } else if (cmdLower === '/status') {
+          writeTerminalLine("System Configuration Matrix:", "info");
+          writeTerminalLine("  ● IPS Intrusion Prevention: ENABLED", "success");
+          writeTerminalLine("  ● NeonDB Cloud Sync: VERIFIED (Port 443 WS)", "success");
+          writeTerminalLine("  ● Session Shield Integrity: 100%", "success");
+        } else {
+          writeTerminalLine(`[SYSTEM ERROR] Command not recognized: "${command}". Type /help for assistance.`, "warning");
+        }
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CyberShield | Passwordless Log In</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="login-page">
+
+
+  <div class="auth-container">
+    <div class="brand-header">
+      <div class="brand-logo"><span class="icon-lock"></span></div>
+      <h2 class="brand-title">CyberShield</h2>
+      <p class="brand-subtitle">Secure Passwordless Portal Access</p>
+    </div>
+
+    <!-- Alert Banner -->
+    <div class="notification" id="notification"></div>
+
+    <!-- Step 1: Email Form -->
+    <div class="step-content active" id="step1">
+      <form id="loginForm" onsubmit="event.preventDefault(); handleStep1Submit();">
+        <div class="form-group">
+          <label class="form-label" for="email">Registered Email</label>
+          <div class="input-wrapper">
+            <span class="input-icon">✉️</span>
+            <input class="form-input" type="email" id="email" placeholder="name@company.com" required>
+          </div>
+        </div>
+
+        <!-- Google reCAPTCHA Widget -->
+        <div id="recaptcha-container" style="margin: 1.5rem 0; display: flex; justify-content: center;"></div>
+
+        <button class="auth-btn" type="submit" id="step1Btn" disabled>
+          Verify Account <span class="icon-key"></span>
+        </button>
+      </form>
+      
+      <div class="auth-footer">
+        New to the platform? <a href="register.html" class="auth-link">Create Account</a>
+      </div>
+    </div>
+
+    <!-- Step 2: TOTP Code Input -->
+    <div class="step-content" id="step2">
+      <div style="text-align: center; margin-bottom: 1.5rem;">
+        <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--accent-cyan);">Verification Code</h3>
+        <p style="font-size: 0.85rem; color: var(--text-secondary);" id="step2Sub">Enter the 6-digit verification code from your authenticator app.</p>
+      </div>
+
+      <div style="text-align: center; margin-bottom: 2.25rem;">
+        <div class="otp-container">
+          <input type="text" class="otp-input" maxlength="1" data-index="0">
+          <input type="text" class="otp-input" maxlength="1" data-index="1">
+          <input type="text" class="otp-input" maxlength="1" data-index="2">
+          <input type="text" class="otp-input" maxlength="1" data-index="3">
+          <input type="text" class="otp-input" maxlength="1" data-index="4">
+          <input type="text" class="otp-input" maxlength="1" data-index="5">
+        </div>
+      </div>
+
+      <div style="text-align: center; margin-top: 1rem; margin-bottom: 1.5rem;">
+        <a href="#" onclick="showRecoveryBlock(); return false;" style="font-size: 0.8rem; color: var(--accent-cyan); text-decoration: none; font-weight: 500; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">Lost your authenticator?</a>
+      </div>
+
+      <button class="auth-btn btn-secondary" onclick="goBackToStep1()">
+        Back to Login
+      </button>
+    </div>
+
+    <!-- Step 3: Authenticator Recovery (Emergency Backup Passkey) -->
+    <div class="step-content" id="step3">
+      <div style="text-align: center; margin-bottom: 1.5rem;">
+        <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--accent-cyan);">Authenticator Recovery</h3>
+        <p style="font-size: 0.85rem; color: var(--text-secondary);" id="recoverySub">Enter your emergency passkey to request a secure Magic Login Link via email.</p>
+      </div>
+
+      <form id="recoveryForm" onsubmit="event.preventDefault(); handleRecoverySubmit();" style="margin-bottom: 1.5rem;">
+        <div class="form-group">
+          <label class="form-label" for="recoveryPasskey">Backup Passkey</label>
+          <div class="input-wrapper">
+            <span class="input-icon">🔑</span>
+            <input class="form-input" type="password" id="recoveryPasskey" placeholder="Enter emergency passkey" required>
+          </div>
+        </div>
+
+        <button class="auth-btn" type="submit" id="recoveryBtn">
+          Send Magic Link <span class="icon-key"></span>
+        </button>
+      </form>
+
+      <button class="auth-btn btn-secondary" onclick="goBackToStep2()">
+        Back to OTP
+      </button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    let registeredUser = null;
+
+    // Enable/disable form submit button in Step 1
+    const emailInput = document.getElementById("email");
+    const step1Btn = document.getElementById("step1Btn");
+
+    function checkStep1Inputs() {
+      if (emailInput.value.trim() !== "" && captchaVerified) {
+        step1Btn.disabled = false;
+      } else {
+        step1Btn.disabled = true;
+      }
+    }
+
+    emailInput.addEventListener("input", checkStep1Inputs);
+
+    // Initialize Captcha
+    setupCaptcha(() => {
+      checkStep1Inputs();
+    });
+
+    // Step 1: Submit email -> Validate reCAPTCHA & email existence via backend
+    async function handleStep1Submit() {
+      const email = emailInput.value.trim();
+      const token = (typeof grecaptcha !== 'undefined') ? grecaptcha.getResponse() : '';
+
+      step1Btn.disabled = true;
+      const originalHtml = step1Btn.innerHTML;
+      step1Btn.innerHTML = 'Verifying...';
+
+      try {
+        const response = await fetch('/api/auth/login-step1', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, recaptchaToken: token })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          registeredUser = {
+            email: email,
+            secret: data.totpSecret
+          };
+
+          // Populate Step 2 context text
+          document.getElementById("step2Sub").innerHTML = `Enter the 6-digit code from your authenticator app linked to <b style="color: var(--text-primary);">${email}</b>.`;
+
+          // Transition to Step 2
+          document.getElementById("step1").classList.remove("active");
+          document.getElementById("step2").classList.add("active");
+          showNotification("Account verified. Please enter your TOTP code.", "success");
+
+          // Setup OTP inputs
+          clearOtpInputs();
+          setupOtpInputs(async (code) => {
+            const isValid = await verifyTOTP(registeredUser.secret, code);
+            if (isValid) {
+              // Set session token
+              sessionStorage.setItem("active_session", registeredUser.email);
+              showNotification("Access granted! Opening secure dashboard...", "success");
+              
+              setTimeout(() => {
+                window.location.href = "dashboard.html";
+              }, 1500);
+            } else {
+              showNotification("Invalid verification code. Please check your app and try again.", "error");
+              clearOtpInputs();
+            }
+          });
+        } else {
+          showNotification(data.message || "Email is not registered.", "error");
+          if (typeof grecaptcha !== 'undefined') {
+            grecaptcha.reset();
+          }
+          captchaVerified = false;
+          checkStep1Inputs();
+        }
+      } catch (err) {
+        console.error(err);
+        showNotification("Server error connecting to backend.", "error");
+      } finally {
+        step1Btn.disabled = false;
+        step1Btn.innerHTML = originalHtml;
+      }
+    }
+
+    function goBackToStep1() {
+      document.getElementById("step2").classList.remove("active");
+      document.getElementById("step1").classList.add("active");
+      // Reset captcha status so they must re-verify (cybersecurity practice)
+      captchaVerified = false;
+      if (typeof grecaptcha !== 'undefined') {
+        grecaptcha.reset();
+      }
+      checkStep1Inputs();
+    }
+
+    function showRecoveryBlock() {
+      document.getElementById("step2").classList.remove("active");
+      document.getElementById("step3").classList.add("active");
+      document.getElementById("recoveryPasskey").value = "";
+      document.getElementById("recoverySub").textContent = "Enter your emergency passkey to request a secure Magic Login Link via email.";
+      
+      const existingDevLink = document.getElementById("devRecoveryLink");
+      if (existingDevLink) existingDevLink.remove();
+    }
+
+    function goBackToStep2() {
+      document.getElementById("step3").classList.remove("active");
+      document.getElementById("step2").classList.add("active");
+    }
+
+    async function handleRecoverySubmit() {
+      const passkey = document.getElementById("recoveryPasskey").value;
+      if (!passkey) {
+        showNotification("Please enter your emergency backup passkey.", "error");
+        return;
+      }
+
+      const recoveryBtn = document.getElementById("recoveryBtn");
+      recoveryBtn.disabled = true;
+      const originalHtml = recoveryBtn.innerHTML;
+      recoveryBtn.innerHTML = "Sending Request...";
+
+      try {
+        const response = await fetch('/api/auth/request-magic-link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: registeredUser.email, passkey })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+          if (data.devMagicLink) {
+            showNotification("Recovery request verified. Click local link.", "success");
+            
+            const existingDevLink = document.getElementById("devRecoveryLink");
+            if (existingDevLink) existingDevLink.remove();
+
+            const devDiv = document.createElement("div");
+            devDiv.id = "devRecoveryLink";
+            devDiv.style.cssText = "margin-top: 15px; padding: 12px; background: rgba(0, 210, 255, 0.08); border: 1px dashed var(--accent-cyan); border-radius: 8px; font-size: 0.8rem; text-align: center;";
+            devDiv.innerHTML = `<b>Dev Mode Link:</b><br><a href="${data.devMagicLink}" style="color: var(--accent-cyan); text-decoration: underline; font-weight: bold; display: inline-block; margin-top: 5px;">Authenticate Recovery Login</a>`;
+            document.getElementById("step3").appendChild(devDiv);
+          } else {
+            showNotification("Magic Link sent successfully. Check your spam folder if you didn't receive it.", "success");
+            document.getElementById("recoverySub").innerHTML = "Magic Link sent successfully. <span style='color: var(--accent-cyan); font-weight: bold;'>Please check your spam/junk folder</span> if you do not see it in your inbox.";
+          }
+        } else {
+          showNotification(data.message || "Failed to trigger recovery.", "error");
+        }
+      } catch (err) {
+        console.error(err);
+        showNotification("Failed to send recovery request to server.", "error");
+      } finally {
+        recoveryBtn.disabled = false;
+        recoveryBtn.innerHTML = originalHtml;
+      }
+    }
+  </script>
+</body>
+</html>
