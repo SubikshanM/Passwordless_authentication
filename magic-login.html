@@ -45,6 +45,8 @@
   </div>
 
   <script>
+    let passkeyLockoutTimer = null;
+
     // Utility to show notification alerts
     function showNotification(msg, type = 'info') {
       const banner = document.getElementById("notification");
@@ -67,6 +69,56 @@
       document.getElementById("magicPasskey").disabled = true;
     }
 
+    function startLockoutTimer(lockedUntilStr, defaultText, callbackOnFinish) {
+      clearInterval(passkeyLockoutTimer);
+      const subEl = document.querySelector("#magicLoginStep p");
+
+      function updateTimer() {
+        const now = Date.now();
+        const lockedUntil = new Date(lockedUntilStr).getTime();
+        const timeLeft = lockedUntil - now;
+
+        if (timeLeft <= 0) {
+          subEl.innerHTML = defaultText;
+          if (callbackOnFinish) callbackOnFinish();
+          return true;
+        }
+
+        const minutes = Math.floor((timeLeft / 1000 / 60) % 60);
+        const seconds = Math.floor((timeLeft / 1000) % 60);
+        const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
+        subEl.innerHTML = `<span style="color: var(--danger); font-weight: bold;">⚠️ ACCESS BLOCKED. Lockout active. Time remaining: ${timeStr}</span>`;
+        return false;
+      }
+
+      const finished = updateTimer();
+      if (finished) return null;
+
+      const timerId = setInterval(() => {
+        const isDone = updateTimer();
+        if (isDone) {
+          clearInterval(timerId);
+        }
+      }, 1000);
+
+      return timerId;
+    }
+
+    function handlePasskeyLockout(lockedUntilStr) {
+      showNotification("Too many failed attempts. Recovery locked.", "error");
+      document.getElementById("magicPasskey").disabled = true;
+      document.getElementById("magicSubmitBtn").disabled = true;
+      passkeyLockoutTimer = startLockoutTimer(
+        lockedUntilStr,
+        "Please enter your backup passkey to verify your identity and complete the authentication process.",
+        () => {
+          document.getElementById("magicPasskey").disabled = false;
+          document.getElementById("magicSubmitBtn").disabled = false;
+        }
+      );
+    }
+
     async function handleMagicSubmit() {
       const passkeyInput = document.getElementById("magicPasskey");
       const passkey = passkeyInput.value;
@@ -87,6 +139,13 @@
           body: JSON.stringify({ token, passkey })
         });
 
+        if (response.status === 429) {
+          const data = await response.json();
+          handlePasskeyLockout(data.lockedUntil);
+          submitBtn.innerHTML = originalHtml;
+          return;
+        }
+
         const data = await response.json();
         if (data.success) {
           showNotification("Identity verified! Entering portal...", "success");
@@ -98,7 +157,11 @@
             window.location.href = "dashboard.html";
           }, 1500);
         } else {
-          showNotification(data.message || "Failed to authenticate.", "error");
+          if (data.lockedUntil) {
+            handlePasskeyLockout(data.lockedUntil);
+          } else {
+            showNotification(data.message || "Failed to authenticate.", "error");
+          }
           submitBtn.disabled = false;
           submitBtn.innerHTML = originalHtml;
         }

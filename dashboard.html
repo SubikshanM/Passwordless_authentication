@@ -68,6 +68,16 @@
       transition: .3s;
       border-radius: 50%;
     }
+    @keyframes modalSlideUp {
+      from {
+        transform: translateY(20px);
+        opacity: 0;
+      }
+      to {
+        transform: translateY(0);
+        opacity: 1;
+      }
+    }
   </style>
 </head>
 <body class="dashboard-page">
@@ -83,45 +93,13 @@
   <div class="dashboard-container" id="dashboardContent">
     <div class="dashboard-header">
       <div class="dashboard-user-info" style="position: relative;">
-        <div class="user-avatar" id="userAvatar" style="cursor: pointer; transition: all 0.2s;" onclick="toggleProfileDropdown(event)">U</div>
+        <div class="user-avatar" id="userAvatar" style="cursor: pointer; transition: all 0.2s;" onclick="toggleProfileModal(true)">U</div>
         <div>
           <h2 style="font-size: 1.25rem; font-weight: 600;" id="userEmail">Loading...</h2>
           <span class="status-pill secured">
             <span style="display: inline-block; width: 6px; height: 6px; background: var(--accent-green); border-radius: 50%;"></span>
             Portal Secured
           </span>
-        </div>
-
-        <!-- Profile Popover Dropdown -->
-        <div id="profileDropdown" style="display: none; position: absolute; top: calc(100% + 10px); left: 0; width: 300px; background: rgba(8, 14, 28, 0.98); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(0, 210, 255, 0.25); border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); padding: 1.5rem; z-index: 1000; flex-direction: column; gap: 1rem;">
-          <div style="display: flex; align-items: center; gap: 1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 1rem;">
-            <div class="user-avatar" id="profileModalAvatar" style="width: 56px; height: 56px; font-size: 1.5rem; flex-shrink: 0;">U</div>
-            <div style="overflow: hidden;">
-              <h3 style="font-size: 1.1rem; font-weight: 600; color: var(--text-primary); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;" id="profileModalUsername">Username</h3>
-              <span style="font-size: 0.8rem; color: var(--accent-cyan);">Security Agent</span>
-            </div>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.85rem;">
-            <div style="display: flex; flex-direction: column; gap: 2px;">
-              <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Email Address</span>
-              <span style="color: var(--text-primary); word-break: break-all;" id="profileModalEmail">-</span>
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 2px;">
-              <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Phone Number</span>
-              <span style="color: var(--text-primary);" id="profileModalPhone">-</span>
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 2px;">
-              <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Clearance Status</span>
-              <span style="color: var(--accent-green); font-weight: 600; display: flex; align-items: center; gap: 4px;">
-                <span style="display: inline-block; width: 6px; height: 6px; background: var(--accent-green); border-radius: 50%;"></span>
-                Active / Verified
-              </span>
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 2px;">
-              <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Enrolled Since</span>
-              <span style="color: var(--text-secondary);" id="profileModalJoined">-</span>
-            </div>
-          </div>
         </div>
       </div>
       <button class="logout-btn" onclick="handleLogout()">Disconnect Portal</button>
@@ -230,6 +208,60 @@
     </div>
   </div>
 
+  <!-- Centered Profile Dossier Modal -->
+  <div id="profileModalOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(2, 4, 8, 0.7); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); z-index: 2000; align-items: center; justify-content: center;" onclick="closeProfileModal(event)">
+    <div id="profileModal" style="width: 460px; max-width: 90%; background: rgba(8, 14, 28, 0.95); border: 1px solid rgba(0, 210, 255, 0.3); border-radius: 20px; box-shadow: 0 0 30px rgba(0, 210, 255, 0.15); padding: 2rem; display: flex; flex-direction: column; gap: 1.5rem; animation: modalSlideUp 0.3s ease-out; position: relative;" onclick="event.stopPropagation()">
+      <!-- Close button -->
+      <button onclick="toggleProfileModal(false)" style="position: absolute; top: 1.25rem; right: 1.25rem; background: none; border: none; color: var(--text-muted); font-size: 1.25rem; cursor: pointer; transition: color 0.2s;" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-muted)'">&times;</button>
+      
+      <div style="display: flex; align-items: center; gap: 1.25rem; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 1.25rem;">
+        <div class="user-avatar" id="profileModalAvatar" style="width: 64px; height: 64px; font-size: 1.75rem; flex-shrink: 0; border: 2px solid var(--accent-cyan); box-shadow: 0 0 10px rgba(0, 210, 255, 0.3);">U</div>
+        <div style="overflow: hidden;">
+          <h3 style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); text-overflow: ellipsis; white-space: nowrap; overflow: hidden; margin-bottom: 2px;" id="profileModalUsername">Username</h3>
+          <span style="font-size: 0.8rem; color: var(--accent-cyan); font-weight: 600; letter-spacing: 1px; text-transform: uppercase;">Security Clearance Level 4</span>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 1rem; font-size: 0.9rem;">
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Email Address</span>
+          <span style="color: var(--text-primary); font-weight: 500; word-break: break-all;" id="profileModalEmail">-</span>
+        </div>
+
+        <!-- Phone Number Row with Edit Option -->
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Phone Number</span>
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+            <span style="color: var(--text-primary); font-weight: 500;" id="profileModalPhone">-</span>
+            <button onclick="togglePhoneEdit(true)" id="editPhoneBtn" style="background: rgba(0, 210, 255, 0.1); border: 1px solid rgba(0, 210, 255, 0.3); color: var(--accent-cyan); font-size: 0.75rem; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.2s;">Change</button>
+          </div>
+          
+          <!-- Inline Phone Edit Form Container -->
+          <div id="phoneEditContainer" style="display: none; flex-direction: column; gap: 8px; margin-top: 6px; padding: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px;">
+            <input type="text" id="newPhoneInput" placeholder="Enter new phone number" style="background: rgba(4, 6, 12, 0.6); border: 1px solid rgba(0, 210, 255, 0.2); border-radius: 6px; color: var(--text-primary); padding: 6px 10px; font-size: 0.85rem; outline: none; width: 100%;" onkeydown="if(event.key==='Enter') savePhoneNumber()">
+            <div style="display: flex; gap: 6px; justify-content: flex-end;">
+              <button onclick="togglePhoneEdit(false)" style="background: transparent; border: none; color: var(--text-muted); font-size: 0.75rem; padding: 4px 8px; cursor: pointer;">Cancel</button>
+              <button onclick="savePhoneNumber()" style="background: var(--accent-cyan); border: none; color: #04060c; font-size: 0.75rem; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-weight: 600;">Update Number</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Clearance Status</span>
+          <span style="color: var(--accent-green); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+            <span style="display: inline-block; width: 8px; height: 8px; background: var(--accent-green); border-radius: 50%; box-shadow: 0 0 8px var(--accent-green);"></span>
+            Active / Verified
+          </span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Enrolled Since</span>
+          <span style="color: var(--text-secondary);" id="profileModalJoined">-</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     // Verify Session
     const activeSession = sessionStorage.getItem("active_session");
@@ -320,21 +352,69 @@
       }
     }
 
-    function toggleProfileDropdown(event) {
-      if (event) event.stopPropagation();
-      const dropdown = document.getElementById("profileDropdown");
-      const isShowing = dropdown.style.display === "flex";
-      dropdown.style.display = isShowing ? "none" : "flex";
+    function toggleProfileModal(show) {
+      const overlay = document.getElementById("profileModalOverlay");
+      if (show) {
+        overlay.style.display = "flex";
+      } else {
+        overlay.style.display = "none";
+        togglePhoneEdit(false);
+      }
     }
 
-    // Close profile dropdown if clicked outside
-    document.addEventListener("click", (e) => {
-      const dropdown = document.getElementById("profileDropdown");
-      const avatar = document.getElementById("userAvatar");
-      if (dropdown && dropdown.style.display === "flex" && !dropdown.contains(e.target) && e.target !== avatar) {
-        dropdown.style.display = "none";
+    function closeProfileModal(event) {
+      if (event.target === document.getElementById("profileModalOverlay")) {
+        toggleProfileModal(false);
+      }
+    }
+
+    // Escape key press handler to dismiss profile modal
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        toggleProfileModal(false);
       }
     });
+
+    function togglePhoneEdit(show) {
+      const container = document.getElementById("phoneEditContainer");
+      const input = document.getElementById("newPhoneInput");
+      const btn = document.getElementById("editPhoneBtn");
+      if (show) {
+        container.style.display = "flex";
+        input.value = document.getElementById("profileModalPhone").textContent;
+        input.focus();
+        btn.style.display = "none";
+      } else {
+        container.style.display = "none";
+        btn.style.display = "inline-block";
+        input.value = "";
+      }
+    }
+
+    async function savePhoneNumber() {
+      const newPhone = document.getElementById("newPhoneInput").value.trim();
+      if (!newPhone) return;
+
+      try {
+        const response = await fetch("/api/user/update-phone", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: activeSession, newPhone })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+          document.getElementById("profileModalPhone").textContent = newPhone;
+          writeTerminalLine(`[${new Date().toLocaleTimeString()}] [AUDIT] Registered phone number updated successfully: ${newPhone}`, "success");
+          togglePhoneEdit(false);
+        } else {
+          writeTerminalLine(`[${new Date().toLocaleTimeString()}] [ERROR] Failed to update phone number: ${data.message}`, "warning");
+        }
+      } catch (err) {
+        console.error(err);
+        writeTerminalLine(`[${new Date().toLocaleTimeString()}] [ERROR] Connection error during phone number update.`, "warning");
+      }
+    }
 
     function initTerminal(email, user) {
       const consoleEl = document.getElementById("terminalConsole");

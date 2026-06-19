@@ -86,6 +86,18 @@ if (process.env.DATABASE_URL) {
     },
   });
   console.log("NeonDB pool initialized successfully.");
+
+  // Auto-run schema migrations to ensure lockout columns exist
+  pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_totp_attempts INTEGER DEFAULT 0;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_locked_until TIMESTAMP WITH TIME ZONE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_passkey_attempts INTEGER DEFAULT 0;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS passkey_locked_until TIMESTAMP WITH TIME ZONE;
+  `).then(() => {
+    console.log("Database schema auto-migrations verified successfully.");
+  }).catch(err => {
+    console.error("Database migration warning (non-fatal):", err);
+  });
 } else {
   console.warn("WARNING: DATABASE_URL is not set in the .env file! Database queries will fail.");
 }
@@ -152,6 +164,10 @@ async function query(text, params) {
       totp_secret: params[3],
       backup_passkey: params[4],
       is_verified: true,
+      failed_totp_attempts: 0,
+      totp_locked_until: null,
+      failed_passkey_attempts: 0,
+      passkey_locked_until: null,
       created_at: new Date()
     };
     dbUsers.set(newUser.email, newUser);
@@ -162,6 +178,40 @@ async function query(text, params) {
     const email = params[0];
     const match = dbUsers.get(email);
     return { rows: match ? [match] : [] };
+  }
+
+  if (textClean.startsWith("UPDATE users SET failed_totp_attempts = $1, totp_locked_until = $2 WHERE email = $3")) {
+    const attempts = params[0];
+    const lockedUntil = params[1];
+    const email = params[2];
+    const user = dbUsers.get(email);
+    if (user) {
+      user.failed_totp_attempts = attempts;
+      user.totp_locked_until = lockedUntil;
+    }
+    return { rowCount: user ? 1 : 0 };
+  }
+
+  if (textClean.startsWith("UPDATE users SET failed_passkey_attempts = $1, passkey_locked_until = $2 WHERE email = $3")) {
+    const attempts = params[0];
+    const lockedUntil = params[1];
+    const email = params[2];
+    const user = dbUsers.get(email);
+    if (user) {
+      user.failed_passkey_attempts = attempts;
+      user.passkey_locked_until = lockedUntil;
+    }
+    return { rowCount: user ? 1 : 0 };
+  }
+
+  if (textClean.startsWith("UPDATE users SET phone = $1 WHERE email = $2")) {
+    const newPhone = params[0];
+    const email = params[1];
+    const user = dbUsers.get(email);
+    if (user) {
+      user.phone = newPhone;
+    }
+    return { rowCount: user ? 1 : 0 };
   }
 
   throw new Error(`Unsupported mock query: ${text}`);
@@ -315,6 +365,56 @@ app.post("/api/auth/register", async (req, res) => {
 });
 
 /**
+ * Helper to verify TOTP code on server-side
+ */
+function verifyTOTPNode(secretBase32, enteredCode) {
+  const base32chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const base32 = secretBase32.replace(/=+$/, "").toUpperCase();
+  const len = base32.length;
+  const keyBytes = Buffer.alloc(Math.floor((len * 5) / 8));
+  let bits = 0;
+  let value = 0;
+  let index = 0;
+
+  for (let i = 0; i < len; i++) {
+    const val = base32chars.indexOf(base32[i]);
+    if (val === -1) throw new Error("Invalid base32 character: " + base32[i]);
+    value = (value << 5) | val;
+    bits += 5;
+    if (bits >= 8) {
+      keyBytes[index++] = (value >>> (bits - 8)) & 255;
+      bits -= 8;
+    }
+  }
+
+  const steps = [0, -1, 1]; // Allow clock drift
+  for (const stepOffset of steps) {
+    const epoch = Math.floor(Date.now() / 1000) + (stepOffset * 30);
+    const counter = Math.floor(epoch / 30);
+    const counterBytes = Buffer.alloc(8);
+    let temp = counter;
+    for (let i = 7; i >= 0; i--) {
+      counterBytes[i] = temp & 0xff;
+      temp = Math.floor(temp / 256);
+    }
+
+    const hmac = crypto.createHmac("sha1", keyBytes).update(counterBytes).digest();
+    const offset = hmac[hmac.length - 1] & 0xf;
+    const binary =
+      ((hmac[offset] & 0x7f) << 24) |
+      ((hmac[offset + 1] & 0xff) << 16) |
+      ((hmac[offset + 2] & 0xff) << 8) |
+      (hmac[offset + 3] & 0xff);
+
+    const otp = (binary % 1000000).toString().padStart(6, "0");
+    if (otp === enteredCode) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * 4. POST /api/auth/login-step1
  * Handles reCAPTCHA verification and checks if email is registered.
  */
@@ -346,14 +446,109 @@ app.post("/api/auth/login-step1", async (req, res) => {
 
     const user = result.rows[0];
 
+    // Check progressive TOTP lockout
+    if (user.totp_locked_until) {
+      const lockedUntil = new Date(user.totp_locked_until);
+      if (lockedUntil > new Date()) {
+        return res.status(429).json({
+          success: false,
+          message: "Too many failed attempts. Authenticator locked.",
+          lockedUntil: user.totp_locked_until
+        });
+      } else {
+        // Reset expired lockout
+        await query(
+          "UPDATE users SET failed_totp_attempts = 0, totp_locked_until = NULL WHERE email = $1",
+          [email]
+        );
+        user.failed_totp_attempts = 0;
+        user.totp_locked_until = null;
+      }
+    }
+
     res.json({
       success: true,
       message: "Credentials verified.",
       totpSecret: decryptAsymmetric(user.totp_secret),
+      passkeyLockedUntil: user.passkey_locked_until
     });
   } catch (err) {
     console.error("Error in /api/auth/login-step1:", err);
     res.status(500).json({ success: false, message: "Internal server error during credential lookup." });
+  }
+});
+
+/**
+ * 4.5. POST /api/auth/verify-totp
+ * Verifies submitted TOTP code on server-side and manages progressive lockout.
+ */
+app.post("/api/auth/verify-totp", async (req, res) => {
+  const { email, code } = req.body;
+  if (!email || !code) {
+    return res.status(400).json({ success: false, message: "Email and code are required." });
+  }
+
+  try {
+    const result = await query("SELECT * FROM users WHERE email = $1", [email]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    const user = result.rows[0];
+
+    // Check progressive TOTP lockout
+    if (user.totp_locked_until) {
+      const lockedUntil = new Date(user.totp_locked_until);
+      if (lockedUntil > new Date()) {
+        return res.status(429).json({
+          success: false,
+          message: "Authenticator locked. Try again later.",
+          lockedUntil: user.totp_locked_until
+        });
+      }
+    }
+
+    const decryptedSecret = decryptAsymmetric(user.totp_secret);
+    const isValid = verifyTOTPNode(decryptedSecret, code);
+
+    if (isValid) {
+      // Clear lockout on success
+      await query(
+        "UPDATE users SET failed_totp_attempts = 0, totp_locked_until = NULL WHERE email = $1",
+        [email]
+      );
+      return res.json({ success: true, message: "TOTP verified successfully." });
+    } else {
+      // Increment failure count
+      const attempts = (user.failed_totp_attempts || 0) + 1;
+      let lockedUntil = null;
+      let durationMs = 0;
+
+      if (attempts >= 5) {
+        durationMs = 60 * 60 * 1000; // 1 hour
+      } else if (attempts >= 3) {
+        durationMs = 5 * 60 * 1000; // 5 minutes
+      }
+
+      if (durationMs > 0) {
+        lockedUntil = new Date(Date.now() + durationMs);
+      }
+
+      await query(
+        "UPDATE users SET failed_totp_attempts = $1, totp_locked_until = $2 WHERE email = $3",
+        [attempts, lockedUntil, email]
+      );
+
+      return res.status(401).json({
+        success: false,
+        message: "Invalid TOTP code.",
+        failedAttempts: attempts,
+        lockedUntil: lockedUntil
+      });
+    }
+  } catch (err) {
+    console.error("Error in /api/auth/verify-totp:", err);
+    res.status(500).json({ success: false, message: "Server error during verification." });
   }
 });
 
@@ -406,12 +601,62 @@ app.post("/api/auth/request-magic-link", async (req, res) => {
     }
 
     const user = result.rows[0];
+
+    // Check passkey lockout status
+    if (user.passkey_locked_until) {
+      const lockedUntil = new Date(user.passkey_locked_until);
+      if (lockedUntil > new Date()) {
+        return res.status(429).json({
+          success: false,
+          message: "Too many failed attempts. Recovery locked.",
+          lockedUntil: user.passkey_locked_until
+        });
+      } else {
+        // Reset expired lockout
+        await query(
+          "UPDATE users SET failed_passkey_attempts = 0, passkey_locked_until = NULL WHERE email = $1",
+          [email]
+        );
+        user.failed_passkey_attempts = 0;
+        user.passkey_locked_until = null;
+      }
+    }
     
     // Decrypt the stored backup passkey and verify match
     const decryptedBackupPasskey = decryptAsymmetric(user.backup_passkey);
     if (decryptedBackupPasskey !== passkey) {
-      return res.status(401).json({ success: false, message: "Invalid backup passkey credentials." });
+      const attempts = (user.failed_passkey_attempts || 0) + 1;
+      let lockedUntil = null;
+      let durationMs = 0;
+
+      if (attempts >= 5) {
+        durationMs = 60 * 60 * 1000; // 1 hour
+      } else if (attempts >= 3) {
+        durationMs = 5 * 60 * 1000; // 5 minutes
+      }
+
+      if (durationMs > 0) {
+        lockedUntil = new Date(Date.now() + durationMs);
+      }
+
+      await query(
+        "UPDATE users SET failed_passkey_attempts = $1, passkey_locked_until = $2 WHERE email = $3",
+        [attempts, lockedUntil, email]
+      );
+
+      return res.status(401).json({
+        success: false,
+        message: "Invalid backup passkey credentials.",
+        failedAttempts: attempts,
+        lockedUntil: lockedUntil
+      });
     }
+
+    // Reset passkey attempts on success
+    await query(
+      "UPDATE users SET failed_passkey_attempts = 0, passkey_locked_until = NULL WHERE email = $1",
+      [email]
+    );
 
     // Generate signed magic token (valid for 15 minutes)
     const expiresAt = Date.now() + 15 * 60 * 1000;
@@ -514,10 +759,61 @@ app.post("/api/auth/magic-login", async (req, res) => {
     }
 
     const user = result.rows[0];
+
+    // Check passkey lockout status
+    if (user.passkey_locked_until) {
+      const lockedUntil = new Date(user.passkey_locked_until);
+      if (lockedUntil > new Date()) {
+        return res.status(429).json({
+          success: false,
+          message: "Too many failed attempts. Recovery locked.",
+          lockedUntil: user.passkey_locked_until
+        });
+      } else {
+        // Reset expired lockout
+        await query(
+          "UPDATE users SET failed_passkey_attempts = 0, passkey_locked_until = NULL WHERE email = $1",
+          [email]
+        );
+        user.failed_passkey_attempts = 0;
+        user.passkey_locked_until = null;
+      }
+    }
+
     const decryptedBackupPasskey = decryptAsymmetric(user.backup_passkey);
     if (decryptedBackupPasskey !== passkey) {
-      return res.status(401).json({ success: false, message: "Invalid passkey. Access Denied." });
+      const attempts = (user.failed_passkey_attempts || 0) + 1;
+      let lockedUntil = null;
+      let durationMs = 0;
+
+      if (attempts >= 5) {
+        durationMs = 60 * 60 * 1000; // 1 hour
+      } else if (attempts >= 3) {
+        durationMs = 5 * 60 * 1000; // 5 minutes
+      }
+
+      if (durationMs > 0) {
+        lockedUntil = new Date(Date.now() + durationMs);
+      }
+
+      await query(
+        "UPDATE users SET failed_passkey_attempts = $1, passkey_locked_until = $2 WHERE email = $3",
+        [attempts, lockedUntil, email]
+      );
+
+      return res.status(401).json({
+        success: false,
+        message: "Invalid passkey. Access Denied.",
+        failedAttempts: attempts,
+        lockedUntil: lockedUntil
+      });
     }
+
+    // Reset passkey attempts on success
+    await query(
+      "UPDATE users SET failed_passkey_attempts = 0, passkey_locked_until = NULL WHERE email = $1",
+      [email]
+    );
 
     res.json({
       success: true,
@@ -530,6 +826,33 @@ app.post("/api/auth/magic-login", async (req, res) => {
   }
 });
 
+/**
+ * 8. POST /api/user/update-phone
+ * Updates the user's phone number.
+ */
+app.post("/api/user/update-phone", async (req, res) => {
+  const { email, newPhone } = req.body;
+  if (!email || !newPhone) {
+    return res.status(400).json({ success: false, message: "Email and new phone number are required." });
+  }
+
+  try {
+    const checkUser = await query("SELECT id FROM users WHERE email = $1", [email]);
+    if (checkUser.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    await query("UPDATE users SET phone = $1 WHERE email = $2", [newPhone, email]);
+
+    res.json({
+      success: true,
+      message: "Phone number updated successfully."
+    });
+  } catch (err) {
+    console.error("Error in /api/user/update-phone:", err);
+    res.status(500).json({ success: false, message: "Failed to update phone number." });
+  }
+});
 
 // Start the server
 app.listen(PORT, () => {

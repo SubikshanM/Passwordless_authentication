@@ -100,6 +100,8 @@
   <script src="app.js"></script>
   <script>
     let registeredUser = null;
+    let totpLockoutTimer = null;
+    let passkeyLockoutTimer = null;
 
     // Enable/disable form submit button in Step 1
     const emailInput = document.getElementById("email");
@@ -120,6 +122,85 @@
       checkStep1Inputs();
     });
 
+    function startLockoutTimer(targetId, lockedUntilStr, subElementId, defaultText, callbackOnFinish) {
+      if (targetId === "totp") {
+        clearInterval(totpLockoutTimer);
+      } else {
+        clearInterval(passkeyLockoutTimer);
+      }
+
+      const subEl = document.getElementById(subElementId);
+
+      function updateTimer() {
+        const now = Date.now();
+        const lockedUntil = new Date(lockedUntilStr).getTime();
+        const timeLeft = lockedUntil - now;
+
+        if (timeLeft <= 0) {
+          subEl.innerHTML = defaultText;
+          if (callbackOnFinish) callbackOnFinish();
+          return true;
+        }
+
+        const minutes = Math.floor((timeLeft / 1000 / 60) % 60);
+        const seconds = Math.floor((timeLeft / 1000) % 60);
+        const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
+        subEl.innerHTML = `<span style="color: var(--danger); font-weight: bold;">⚠️ ACCESS BLOCKED. Lockout active. Time remaining: ${timeStr}</span>`;
+        return false;
+      }
+
+      const finished = updateTimer();
+      if (finished) return null;
+
+      const timerId = setInterval(() => {
+        const isDone = updateTimer();
+        if (isDone) {
+          clearInterval(timerId);
+        }
+      }, 1000);
+
+      return timerId;
+    }
+
+    function handleTotpLockout(lockedUntilStr) {
+      disableOtpInputs(true);
+      totpLockoutTimer = startLockoutTimer(
+        "totp",
+        lockedUntilStr,
+        "step2Sub",
+        `Enter the 6-digit code from your authenticator app linked to <b style="color: var(--text-primary);">${registeredUser.email}</b>.`,
+        () => {
+          disableOtpInputs(false);
+        }
+      );
+    }
+
+    function disableOtpInputs(disabled) {
+      const inputs = document.querySelectorAll(".otp-input");
+      inputs.forEach(input => {
+        input.disabled = disabled;
+      });
+      if (disabled) {
+        clearOtpInputs();
+      }
+    }
+
+    function handlePasskeyLockout(lockedUntilStr) {
+      document.getElementById("recoveryPasskey").disabled = true;
+      document.getElementById("recoveryBtn").disabled = true;
+      passkeyLockoutTimer = startLockoutTimer(
+        "passkey",
+        lockedUntilStr,
+        "recoverySub",
+        "Enter your emergency passkey to request a secure Magic Login Link via email.",
+        () => {
+          document.getElementById("recoveryPasskey").disabled = false;
+          document.getElementById("recoveryBtn").disabled = false;
+        }
+      );
+    }
+
     // Step 1: Submit email -> Validate reCAPTCHA & email existence via backend
     async function handleStep1Submit() {
       const email = emailInput.value.trim();
@@ -136,15 +217,30 @@
           body: JSON.stringify({ email, recaptchaToken: token })
         });
         
+        if (response.status === 429) {
+          const data = await response.json();
+          registeredUser = { email: email, passkeyLockedUntil: null };
+          document.getElementById("step2Sub").innerHTML = `Enter the 6-digit code from your authenticator app linked to <b style="color: var(--text-primary);">${email}</b>.`;
+          document.getElementById("step1").classList.remove("active");
+          document.getElementById("step2").classList.add("active");
+          handleTotpLockout(data.lockedUntil);
+          return;
+        }
+
         const data = await response.json();
         if (data.success) {
           registeredUser = {
             email: email,
-            secret: data.totpSecret
+            secret: data.totpSecret,
+            passkeyLockedUntil: data.passkeyLockedUntil
           };
 
           // Populate Step 2 context text
           document.getElementById("step2Sub").innerHTML = `Enter the 6-digit code from your authenticator app linked to <b style="color: var(--text-primary);">${email}</b>.`;
+
+          // Clear any old lockout UI state
+          disableOtpInputs(false);
+          clearInterval(totpLockoutTimer);
 
           // Transition to Step 2
           document.getElementById("step1").classList.remove("active");
@@ -154,18 +250,37 @@
           // Setup OTP inputs
           clearOtpInputs();
           setupOtpInputs(async (code) => {
-            const isValid = await verifyTOTP(registeredUser.secret, code);
-            if (isValid) {
-              // Set session token
-              sessionStorage.setItem("active_session", registeredUser.email);
-              showNotification("Access granted! Opening secure dashboard...", "success");
-              
-              setTimeout(() => {
-                window.location.href = "dashboard.html";
-              }, 1500);
-            } else {
-              showNotification("Invalid verification code. Please check your app and try again.", "error");
-              clearOtpInputs();
+            try {
+              const verifyRes = await fetch('/api/auth/verify-totp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: registeredUser.email, code })
+              });
+
+              if (verifyRes.status === 429) {
+                const lockData = await verifyRes.json();
+                handleTotpLockout(lockData.lockedUntil);
+                return;
+              }
+
+              const verifyData = await verifyRes.json();
+              if (verifyData.success) {
+                sessionStorage.setItem("active_session", registeredUser.email);
+                showNotification("Access granted! Opening secure dashboard...", "success");
+                setTimeout(() => {
+                  window.location.href = "dashboard.html";
+                }, 1500);
+              } else {
+                if (verifyData.lockedUntil) {
+                  handleTotpLockout(verifyData.lockedUntil);
+                } else {
+                  showNotification("Invalid verification code. Please check your app and try again.", "error");
+                  clearOtpInputs();
+                }
+              }
+            } catch (err) {
+              console.error(err);
+              showNotification("Verification error.", "error");
             }
           });
         } else {
@@ -188,19 +303,37 @@
     function goBackToStep1() {
       document.getElementById("step2").classList.remove("active");
       document.getElementById("step1").classList.add("active");
+      
       // Reset captcha status so they must re-verify (cybersecurity practice)
       captchaVerified = false;
       if (typeof grecaptcha !== 'undefined') {
         grecaptcha.reset();
       }
       checkStep1Inputs();
+
+      // Clear lock state when going back to type another ID
+      clearInterval(totpLockoutTimer);
+      disableOtpInputs(false);
+      document.getElementById("step2Sub").innerHTML = "Enter the 6-digit verification code from your authenticator app.";
     }
 
     function showRecoveryBlock() {
       document.getElementById("step2").classList.remove("active");
       document.getElementById("step3").classList.add("active");
       document.getElementById("recoveryPasskey").value = "";
+      
+      clearInterval(passkeyLockoutTimer);
+      document.getElementById("recoveryPasskey").disabled = false;
+      document.getElementById("recoveryBtn").disabled = false;
       document.getElementById("recoverySub").textContent = "Enter your emergency passkey to request a secure Magic Login Link via email.";
+
+      if (registeredUser && registeredUser.passkeyLockedUntil) {
+        const lockedUntil = new Date(registeredUser.passkeyLockedUntil);
+        if (lockedUntil > new Date()) {
+          handlePasskeyLockout(registeredUser.passkeyLockedUntil);
+          return;
+        }
+      }
       
       const existingDevLink = document.getElementById("devRecoveryLink");
       if (existingDevLink) existingDevLink.remove();
@@ -230,6 +363,12 @@
           body: JSON.stringify({ email: registeredUser.email, passkey })
         });
 
+        if (response.status === 429) {
+          const data = await response.json();
+          handlePasskeyLockout(data.lockedUntil);
+          return;
+        }
+
         const data = await response.json();
         if (data.success) {
           if (data.devMagicLink) {
@@ -248,7 +387,11 @@
             document.getElementById("recoverySub").innerHTML = "Magic Link sent successfully. <span style='color: var(--accent-cyan); font-weight: bold;'>Please check your spam/junk folder</span> if you do not see it in your inbox.";
           }
         } else {
-          showNotification(data.message || "Failed to trigger recovery.", "error");
+          if (data.lockedUntil) {
+            handlePasskeyLockout(data.lockedUntil);
+          } else {
+            showNotification(data.message || "Failed to trigger recovery.", "error");
+          }
         }
       } catch (err) {
         console.error(err);
