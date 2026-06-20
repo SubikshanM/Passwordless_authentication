@@ -243,10 +243,20 @@
             
             <!-- Inline Phone Edit Form Container -->
             <div id="phoneEditContainer" style="display: none; flex-direction: column; gap: 8px; margin-top: 6px; padding: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px;">
-              <input type="text" id="newPhoneInput" placeholder="Enter new phone number" style="background: rgba(4, 6, 12, 0.6); border: 1px solid rgba(0, 210, 255, 0.2); border-radius: 6px; color: var(--text-primary); padding: 6px 10px; font-size: 0.85rem; outline: none; width: 100%;" onkeydown="if(event.key==='Enter') savePhoneNumber()">
-              <div style="display: flex; gap: 6px; justify-content: flex-end;">
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <input type="text" id="newPhoneInput" placeholder="e.g. +15056260293" style="background: rgba(4, 6, 12, 0.6); border: 1px solid rgba(0, 210, 255, 0.2); border-radius: 6px; color: var(--text-primary); padding: 6px 10px; font-size: 0.85rem; outline: none; flex: 1;">
+                <button onclick="sendProfilePhoneOtp()" id="sendProfilePhoneOtpBtn" style="background: rgba(0, 210, 255, 0.1); border: 1px solid rgba(0, 210, 255, 0.3); color: var(--accent-cyan); font-size: 0.75rem; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: 600; white-space: nowrap; height: 32px;">Send OTP</button>
+              </div>
+              
+              <!-- Hidden Profile Phone OTP Input Container -->
+              <div id="profilePhoneOtpGroup" style="display: none; flex-direction: column; gap: 8px; margin-top: 4px;">
+                <label style="color: var(--accent-cyan); font-size: 0.75rem; font-weight: 500;">Enter Phone OTP</label>
+                <input type="text" id="profilePhoneOtpInput" placeholder="123456" maxlength="6" style="background: rgba(4, 6, 12, 0.6); border: 1px solid rgba(0, 210, 255, 0.2); border-radius: 6px; color: var(--text-primary); padding: 6px 10px; font-size: 0.85rem; outline: none; width: 100%;">
+              </div>
+
+              <div style="display: flex; gap: 6px; justify-content: flex-end; margin-top: 4px;">
                 <button onclick="togglePhoneEdit(false)" style="background: transparent; border: none; color: var(--text-muted); font-size: 0.75rem; padding: 4px 8px; cursor: pointer;">Cancel</button>
-                <button onclick="savePhoneNumber()" style="background: var(--accent-cyan); border: none; color: #04060c; font-size: 0.75rem; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-weight: 600;">Update Number</button>
+                <button id="updatePhoneBtn" onclick="savePhoneNumber()" disabled style="background: var(--accent-cyan); border: none; color: #04060c; font-size: 0.75rem; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-weight: 600; opacity: 0.5;">Verify & Update</button>
               </div>
             </div>
           </div>
@@ -889,6 +899,19 @@
       const container = document.getElementById("phoneEditContainer");
       const input = document.getElementById("newPhoneInput");
       const btn = document.getElementById("editPhoneBtn");
+      
+      // Reset additional fields
+      document.getElementById("profilePhoneOtpGroup").style.display = "none";
+      document.getElementById("profilePhoneOtpInput").value = "";
+      
+      const sendBtn = document.getElementById("sendProfilePhoneOtpBtn");
+      sendBtn.disabled = false;
+      sendBtn.innerHTML = "Send OTP";
+      
+      const updateBtn = document.getElementById("updatePhoneBtn");
+      updateBtn.disabled = true;
+      updateBtn.style.opacity = "0.5";
+
       if (show) {
         container.style.display = "flex";
         input.value = document.getElementById("profileModalPhone").textContent;
@@ -901,11 +924,90 @@
       }
     }
 
-    async function savePhoneNumber() {
+    // Input listener to clean and validate OTP input
+    document.getElementById("profilePhoneOtpInput").addEventListener("input", (e) => {
+      e.target.value = e.target.value.replace(/\D/g, "");
+      const updateBtn = document.getElementById("updatePhoneBtn");
+      if (e.target.value.length === 6) {
+        updateBtn.disabled = false;
+        updateBtn.style.opacity = "1";
+      } else {
+        updateBtn.disabled = true;
+        updateBtn.style.opacity = "0.5";
+      }
+    });
+
+    async function sendProfilePhoneOtp() {
       const newPhone = document.getElementById("newPhoneInput").value.trim();
-      if (!newPhone) return;
+      if (!newPhone) {
+        showProfileNotification("Please enter a valid phone number first.", "error");
+        return;
+      }
+
+      const sendBtn = document.getElementById("sendProfilePhoneOtpBtn");
+      sendBtn.disabled = true;
+      const originalText = sendBtn.innerHTML;
+      sendBtn.innerHTML = "Sending...";
 
       try {
+        const response = await fetch('/api/auth/send-phone-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: newPhone })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          document.getElementById("profilePhoneOtpGroup").style.display = "flex";
+          showProfileNotification("Verification OTP sent to your new phone number.", "success");
+          
+          if (data.devOtp) {
+            console.log("DEV MODE: Phone OTP is " + data.devOtp);
+            showProfileNotification("Dev Mode: Code is " + data.devOtp, "success");
+          }
+        } else {
+          showProfileNotification(data.message || "Failed to send OTP.", "error");
+          sendBtn.disabled = false;
+        }
+      } catch (err) {
+        console.error(err);
+        showProfileNotification("Server error connecting to backend.", "error");
+        sendBtn.disabled = false;
+      } finally {
+        sendBtn.innerHTML = originalText;
+      }
+    }
+
+    async function savePhoneNumber() {
+      const newPhone = document.getElementById("newPhoneInput").value.trim();
+      const otpCode = document.getElementById("profilePhoneOtpInput").value.trim();
+      if (!newPhone) return;
+      if (!otpCode || otpCode.length !== 6) {
+        showProfileNotification("Please enter a valid 6-digit OTP.", "error");
+        return;
+      }
+
+      const updateBtn = document.getElementById("updatePhoneBtn");
+      updateBtn.disabled = true;
+      updateBtn.innerHTML = "Updating...";
+
+      try {
+        // Step 1: Verify the phone OTP code
+        const verifyRes = await fetch("/api/auth/verify-phone-otp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone: newPhone, otpCode })
+        });
+
+        const verifyData = await verifyRes.json();
+        if (!verifyData.success) {
+          showProfileNotification(verifyData.message || "Invalid OTP code.", "error");
+          updateBtn.disabled = false;
+          updateBtn.innerHTML = "Verify & Update";
+          return;
+        }
+
+        // Step 2: Update the phone number in the database
         const response = await fetch("/api/user/update-phone", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -915,14 +1017,18 @@
         const data = await response.json();
         if (data.success) {
           document.getElementById("profileModalPhone").textContent = newPhone;
+          showProfileNotification("Phone number updated successfully!", "success");
           writeTerminalLine(`[${new Date().toLocaleTimeString()}] [AUDIT] Registered phone number updated successfully: ${newPhone}`, "success");
           togglePhoneEdit(false);
         } else {
-          writeTerminalLine(`[${new Date().toLocaleTimeString()}] [ERROR] Failed to update phone number: ${data.message}`, "warning");
+          showProfileNotification(data.message || "Failed to update phone number.", "error");
         }
       } catch (err) {
         console.error(err);
-        writeTerminalLine(`[${new Date().toLocaleTimeString()}] [ERROR] Connection error during phone number update.`, "warning");
+        showProfileNotification("Connection error during update.", "error");
+      } finally {
+        updateBtn.disabled = false;
+        updateBtn.innerHTML = "Verify & Update";
       }
     }
 
