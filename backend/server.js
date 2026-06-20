@@ -90,6 +90,7 @@ if (process.env.DATABASE_URL) {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_locked_until TIMESTAMP WITH TIME ZONE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_passkey_attempts INTEGER DEFAULT 0;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS passkey_locked_until TIMESTAMP WITH TIME ZONE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN DEFAULT FALSE;
   `).then(() => {
     console.log("Database schema auto-migrations verified successfully.");
   }).catch(err => {
@@ -198,6 +199,7 @@ async function query(text, params) {
       totp_secret: params[3],
       backup_passkey: params[4],
       is_verified: true,
+      phone_verified: false,
       failed_totp_attempts: 0,
       totp_locked_until: null,
       failed_passkey_attempts: 0,
