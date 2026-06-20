@@ -3,8 +3,9 @@ const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
 const express = require("express");
-const { Pool } = require("@neondatabase/serverless");
+const { Pool, neonConfig } = require("@neondatabase/serverless");
 const ws = require("ws");
+neonConfig.webSocketConstructor = ws;
 const crypto = require("crypto");
 
 const cors = require("cors");
@@ -199,7 +200,7 @@ async function query(text, params) {
       totp_secret: params[3],
       backup_passkey: params[4],
       is_verified: true,
-      phone_verified: false,
+      phone_verified: true,
       failed_totp_attempts: 0,
       totp_locked_until: null,
       failed_passkey_attempts: 0,
@@ -632,7 +633,7 @@ app.post("/api/auth/register", async (req, res) => {
 
     // Save user details
     await query(
-      "INSERT INTO users (username, email, phone, totp_secret, backup_passkey, is_verified) VALUES ($1, $2, $3, $4, $5, true)",
+      "INSERT INTO users (username, email, phone, totp_secret, backup_passkey, is_verified, phone_verified) VALUES ($1, $2, $3, $4, $5, true, true)",
       [username, email, phone, encryptedTotpSecret, encryptedBackupPasskey]
     );
 
