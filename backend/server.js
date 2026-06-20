@@ -3,12 +3,9 @@ const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
 const express = require("express");
-const { Pool, neonConfig } = require("@neondatabase/serverless");
+const { Pool } = require("pg");
 const ws = require("ws");
 const crypto = require("crypto");
-
-// Configure Neon driver to connect over WebSockets (Port 443) to bypass local port 5432 network blocks
-neonConfig.webSocketConstructor = ws;
 
 const cors = require("cors");
 
@@ -102,14 +99,49 @@ if (process.env.DATABASE_URL) {
   console.warn("WARNING: DATABASE_URL is not set in the .env file! Database queries will fail.");
 }
 
-// Mock in-memory database store (for when DATABASE_URL is not set)
-const dbUsers = new Map();
-const dbOtps = [];
+// Mock database store with persistent local JSON fallback
+const fs = require("fs");
+const MOCK_DB_FILE = path.join(__dirname, "mock_db.json");
+
+let dbUsers = new Map();
+let dbOtps = [];
+
+function loadMockDb() {
+  try {
+    if (fs.existsSync(MOCK_DB_FILE)) {
+      const data = JSON.parse(fs.readFileSync(MOCK_DB_FILE, "utf8"));
+      dbUsers = new Map(Object.entries(data.users || {}));
+      dbOtps = data.otps || [];
+      console.log(`Loaded ${dbUsers.size} users and ${dbOtps.length} OTPs from local mock DB.`);
+    }
+  } catch (err) {
+    console.error("Error loading mock database file:", err);
+  }
+}
+
+function saveMockDb() {
+  try {
+    const data = {
+      users: Object.fromEntries(dbUsers),
+      otps: dbOtps
+    };
+    fs.writeFileSync(MOCK_DB_FILE, JSON.stringify(data, null, 2), "utf8");
+  } catch (err) {
+    console.error("Error saving mock database file:", err);
+  }
+}
+
+// Initial load
+loadMockDb();
 
 // Helper: Query Database (with transparent in-memory mock fallback)
 async function query(text, params) {
   if (pool) {
-    return pool.query(text, params);
+    try {
+      return await pool.query(text, params);
+    } catch (err) {
+      console.warn("NeonDB query failed, falling back to mock database:", err.message || err);
+    }
   }
 
   // Mimic PostgreSQL behavior using in-memory mock collections
@@ -125,6 +157,7 @@ async function query(text, params) {
       created_at: new Date()
     };
     dbOtps.push(newOtp);
+    saveMockDb();
     return { rows: [newOtp] };
   }
 
@@ -144,6 +177,7 @@ async function query(text, params) {
     const record = dbOtps.find(o => o.id === id);
     if (record) {
       record.is_used = true;
+      saveMockDb();
     }
     return { rows: [] };
   }
@@ -171,6 +205,7 @@ async function query(text, params) {
       created_at: new Date()
     };
     dbUsers.set(newUser.email, newUser);
+    saveMockDb();
     return { rows: [newUser] };
   }
 
@@ -180,36 +215,36 @@ async function query(text, params) {
     return { rows: match ? [match] : [] };
   }
 
-  if (textClean.startsWith("UPDATE users SET failed_totp_attempts = $1, totp_locked_until = $2 WHERE email = $3")) {
-    const attempts = params[0];
-    const lockedUntil = params[1];
-    const email = params[2];
+  if (textClean.startsWith("UPDATE users")) {
+    const email = params[params.length - 1];
     const user = dbUsers.get(email);
     if (user) {
-      user.failed_totp_attempts = attempts;
-      user.totp_locked_until = lockedUntil;
-    }
-    return { rowCount: user ? 1 : 0 };
-  }
-
-  if (textClean.startsWith("UPDATE users SET failed_passkey_attempts = $1, passkey_locked_until = $2 WHERE email = $3")) {
-    const attempts = params[0];
-    const lockedUntil = params[1];
-    const email = params[2];
-    const user = dbUsers.get(email);
-    if (user) {
-      user.failed_passkey_attempts = attempts;
-      user.passkey_locked_until = lockedUntil;
-    }
-    return { rowCount: user ? 1 : 0 };
-  }
-
-  if (textClean.startsWith("UPDATE users SET phone = $1 WHERE email = $2")) {
-    const newPhone = params[0];
-    const email = params[1];
-    const user = dbUsers.get(email);
-    if (user) {
-      user.phone = newPhone;
+      if (textClean.includes("failed_totp_attempts = $1") || textClean.includes("failed_totp_attempts = 0")) {
+        const attempts = textClean.includes("failed_totp_attempts = 0") ? 0 : params[0];
+        const lockedUntil = textClean.includes("totp_locked_until = NULL") ? null : (attempts === 0 ? null : params[1]);
+        user.failed_totp_attempts = attempts;
+        user.totp_locked_until = lockedUntil;
+      }
+      if (textClean.includes("failed_passkey_attempts = $1") || textClean.includes("failed_passkey_attempts = 0")) {
+        let attemptsVal = 0;
+        let lockedVal = null;
+        if (textClean.includes("failed_passkey_attempts = 0")) {
+          attemptsVal = 0;
+          lockedVal = null;
+        } else {
+          attemptsVal = params[0];
+          lockedVal = params[1];
+        }
+        user.failed_passkey_attempts = attemptsVal;
+        user.passkey_locked_until = lockedVal;
+      }
+      if (textClean.includes("phone = $1")) {
+        user.phone = params[0];
+      }
+      if (textClean.includes("totp_secret = $1")) {
+        user.totp_secret = params[0];
+      }
+      saveMockDb();
     }
     return { rowCount: user ? 1 : 0 };
   }
@@ -851,6 +886,187 @@ app.post("/api/user/update-phone", async (req, res) => {
   } catch (err) {
     console.error("Error in /api/user/update-phone:", err);
     res.status(500).json({ success: false, message: "Failed to update phone number." });
+  }
+});
+
+/**
+ * 9. POST /api/user/get-totp-secret
+ * Decrypts and returns the existing TOTP secret key after checking backup passkey.
+ */
+app.post("/api/user/get-totp-secret", async (req, res) => {
+  const { email, passkey } = req.body;
+  if (!email || !passkey) {
+    return res.status(400).json({ success: false, message: "Email and backup passkey are required." });
+  }
+
+  try {
+    const result = await query("SELECT * FROM users WHERE email = $1", [email]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    const user = result.rows[0];
+
+    // Check passkey lockout status
+    if (user.passkey_locked_until) {
+      const lockedUntil = new Date(user.passkey_locked_until);
+      if (lockedUntil > new Date()) {
+        return res.status(429).json({
+          success: false,
+          message: "Too many failed attempts. Access locked.",
+          lockedUntil: user.passkey_locked_until
+        });
+      } else {
+        // Reset expired lockout
+        await query(
+          "UPDATE users SET failed_passkey_attempts = 0, passkey_locked_until = NULL WHERE email = $1",
+          [email]
+        );
+        user.failed_passkey_attempts = 0;
+        user.passkey_locked_until = null;
+      }
+    }
+
+    // Decrypt and verify passkey
+    const decryptedBackupPasskey = decryptAsymmetric(user.backup_passkey);
+    if (decryptedBackupPasskey !== passkey) {
+      const attempts = (user.failed_passkey_attempts || 0) + 1;
+      let lockedUntil = null;
+      let durationMs = 0;
+
+      if (attempts >= 5) {
+        durationMs = 60 * 60 * 1000; // 1 hour
+      } else if (attempts >= 3) {
+        durationMs = 5 * 60 * 1000; // 5 minutes
+      }
+
+      if (durationMs > 0) {
+        lockedUntil = new Date(Date.now() + durationMs);
+      }
+
+      await query(
+        "UPDATE users SET failed_passkey_attempts = $1, passkey_locked_until = $2 WHERE email = $3",
+        [attempts, lockedUntil, email]
+      );
+
+      return res.status(401).json({
+        success: false,
+        message: "Invalid backup passkey credentials.",
+        failedAttempts: attempts,
+        lockedUntil: lockedUntil
+      });
+    }
+
+    // Reset attempts on success
+    await query(
+      "UPDATE users SET failed_passkey_attempts = 0, passkey_locked_until = NULL WHERE email = $1",
+      [email]
+    );
+
+    const decryptedSecret = decryptAsymmetric(user.totp_secret);
+    res.json({
+      success: true,
+      secret: decryptedSecret
+    });
+  } catch (err) {
+    console.error("Error in /api/user/get-totp-secret:", err);
+    res.status(500).json({ success: false, message: "Internal server error." });
+  }
+});
+
+/**
+ * 10. POST /api/user/update-totp-secret
+ * Validates new TOTP and saves the encrypted secret.
+ */
+app.post("/api/user/update-totp-secret", async (req, res) => {
+  const { email, passkey, newSecret, totpCode } = req.body;
+  if (!email || !passkey || !newSecret || !totpCode) {
+    return res.status(400).json({ success: false, message: "All fields are required." });
+  }
+
+  try {
+    const result = await query("SELECT * FROM users WHERE email = $1", [email]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    const user = result.rows[0];
+
+    // Check passkey lockout status
+    if (user.passkey_locked_until) {
+      const lockedUntil = new Date(user.passkey_locked_until);
+      if (lockedUntil > new Date()) {
+        return res.status(429).json({
+          success: false,
+          message: "Too many failed attempts. Access locked.",
+          lockedUntil: user.passkey_locked_until
+        });
+      } else {
+        // Reset expired lockout
+        await query(
+          "UPDATE users SET failed_passkey_attempts = 0, passkey_locked_until = NULL WHERE email = $1",
+          [email]
+        );
+        user.failed_passkey_attempts = 0;
+        user.passkey_locked_until = null;
+      }
+    }
+
+    // Decrypt and verify passkey
+    const decryptedBackupPasskey = decryptAsymmetric(user.backup_passkey);
+    if (decryptedBackupPasskey !== passkey) {
+      const attempts = (user.failed_passkey_attempts || 0) + 1;
+      let lockedUntil = null;
+      let durationMs = 0;
+
+      if (attempts >= 5) {
+        durationMs = 60 * 60 * 1000; // 1 hour
+      } else if (attempts >= 3) {
+        durationMs = 5 * 60 * 1000; // 5 minutes
+      }
+
+      if (durationMs > 0) {
+        lockedUntil = new Date(Date.now() + durationMs);
+      }
+
+      await query(
+        "UPDATE users SET failed_passkey_attempts = $1, passkey_locked_until = $2 WHERE email = $3",
+        [attempts, lockedUntil, email]
+      );
+
+      return res.status(401).json({
+        success: false,
+        message: "Invalid backup passkey credentials.",
+        failedAttempts: attempts,
+        lockedUntil: lockedUntil
+      });
+    }
+
+    // Verify TOTP code against new secret
+    const isValid = verifyTOTPNode(newSecret, totpCode);
+    if (!isValid) {
+      return res.status(400).json({ success: false, message: "Invalid TOTP verification code." });
+    }
+
+    // Reset passkey attempts on success
+    await query(
+      "UPDATE users SET failed_passkey_attempts = 0, passkey_locked_until = NULL WHERE email = $1",
+      [email]
+    );
+
+    // Encrypt the new secret
+    const encryptedSecret = encryptAsymmetric(newSecret);
+
+    // Update in database
+    await query("UPDATE users SET totp_secret = $1 WHERE email = $2", [encryptedSecret, email]);
+
+    res.json({
+      success: true,
+      message: "Authenticator key rotated successfully."
+    });
+  } catch (err) {
+    console.error("Error in /api/user/update-totp-secret:", err);
+    res.status(500).json({ success: false, message: "Internal server error." });
   }
 });
 

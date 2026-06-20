@@ -210,58 +210,157 @@
 
   <!-- Centered Profile Dossier Modal -->
   <div id="profileModalOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(2, 4, 8, 0.7); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); z-index: 2000; align-items: center; justify-content: center;" onclick="closeProfileModal(event)">
-    <div id="profileModal" style="width: 460px; max-width: 90%; background: rgba(8, 14, 28, 0.95); border: 1px solid rgba(0, 210, 255, 0.3); border-radius: 20px; box-shadow: 0 0 30px rgba(0, 210, 255, 0.15); padding: 2rem; display: flex; flex-direction: column; gap: 1.5rem; animation: modalSlideUp 0.3s ease-out; position: relative;" onclick="event.stopPropagation()">
+    <div id="profileModal" style="width: 460px; max-width: 90%; background: rgba(8, 14, 28, 0.95); border: 1px solid rgba(0, 210, 255, 0.3); border-radius: 20px; box-shadow: 0 0 30px rgba(0, 210, 255, 0.15); padding: 2rem; display: flex; flex-direction: column; gap: 1rem; animation: modalSlideUp 0.3s ease-out; position: relative;" onclick="event.stopPropagation()">
       <!-- Close button -->
       <button onclick="toggleProfileModal(false)" style="position: absolute; top: 1.25rem; right: 1.25rem; background: none; border: none; color: var(--text-muted); font-size: 1.25rem; cursor: pointer; transition: color 0.2s;" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-muted)'">&times;</button>
       
-      <div style="display: flex; align-items: center; gap: 1.25rem; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 1.25rem;">
-        <div class="user-avatar" id="profileModalAvatar" style="width: 64px; height: 64px; font-size: 1.75rem; flex-shrink: 0; border: 2px solid var(--accent-cyan); box-shadow: 0 0 10px rgba(0, 210, 255, 0.3);">U</div>
-        <div style="overflow: hidden;">
-          <h3 style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); text-overflow: ellipsis; white-space: nowrap; overflow: hidden; margin-bottom: 2px;" id="profileModalUsername">Username</h3>
-          <span style="font-size: 0.8rem; color: var(--accent-cyan); font-weight: 600; letter-spacing: 1px; text-transform: uppercase;">Security Clearance Level 4</span>
+      <!-- Inner Modal Notifications -->
+      <div class="notification" id="profileNotification" style="margin-top: 1rem; margin-bottom: 0.5rem; font-size: 0.85rem; padding: 10px 14px;"></div>
+
+      <!-- Main Profile View -->
+      <div id="profileMainView" style="display: flex; flex-direction: column; gap: 1.5rem;">
+        <div style="display: flex; align-items: center; gap: 1.25rem; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 1.25rem;">
+          <div class="user-avatar" id="profileModalAvatar" style="width: 64px; height: 64px; font-size: 1.75rem; flex-shrink: 0; border: 2px solid var(--accent-cyan); box-shadow: 0 0 10px rgba(0, 210, 255, 0.3);">U</div>
+          <div style="overflow: hidden;">
+            <h3 style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); text-overflow: ellipsis; white-space: nowrap; overflow: hidden; margin-bottom: 2px;" id="profileModalUsername">Username</h3>
+            <span style="font-size: 0.8rem; color: var(--accent-cyan); font-weight: 600; letter-spacing: 1px; text-transform: uppercase;">Security Clearance Level 4</span>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 1rem; font-size: 0.9rem;">
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Email Address</span>
+            <span style="color: var(--text-primary); font-weight: 500; word-break: break-all;" id="profileModalEmail">-</span>
+          </div>
+
+          <!-- Phone Number Row with Edit Option -->
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Phone Number</span>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+              <span style="color: var(--text-primary); font-weight: 500;" id="profileModalPhone">-</span>
+              <button onclick="togglePhoneEdit(true)" id="editPhoneBtn" style="background: rgba(0, 210, 255, 0.1); border: 1px solid rgba(0, 210, 255, 0.3); color: var(--accent-cyan); font-size: 0.75rem; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.2s;">Change</button>
+            </div>
+            
+            <!-- Inline Phone Edit Form Container -->
+            <div id="phoneEditContainer" style="display: none; flex-direction: column; gap: 8px; margin-top: 6px; padding: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px;">
+              <input type="text" id="newPhoneInput" placeholder="Enter new phone number" style="background: rgba(4, 6, 12, 0.6); border: 1px solid rgba(0, 210, 255, 0.2); border-radius: 6px; color: var(--text-primary); padding: 6px 10px; font-size: 0.85rem; outline: none; width: 100%;" onkeydown="if(event.key==='Enter') savePhoneNumber()">
+              <div style="display: flex; gap: 6px; justify-content: flex-end;">
+                <button onclick="togglePhoneEdit(false)" style="background: transparent; border: none; color: var(--text-muted); font-size: 0.75rem; padding: 4px 8px; cursor: pointer;">Cancel</button>
+                <button onclick="savePhoneNumber()" style="background: var(--accent-cyan); border: none; color: #04060c; font-size: 0.75rem; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-weight: 600;">Update Number</button>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Clearance Status</span>
+            <span style="color: var(--accent-green); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+              <span style="display: inline-block; width: 8px; height: 8px; background: var(--accent-green); border-radius: 50%; box-shadow: 0 0 8px var(--accent-green);"></span>
+              Active / Verified
+            </span>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Enrolled Since</span>
+            <span style="color: var(--text-secondary);" id="profileModalJoined">-</span>
+          </div>
+        </div>
+
+        <!-- Authenticator Actions Row -->
+        <div style="display: flex; gap: 10px; margin-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 1.25rem;">
+          <button onclick="startSecurityAction('reveal')" style="flex: 1; background: rgba(0, 210, 255, 0.08); border: 1px solid rgba(0, 210, 255, 0.3); color: var(--accent-cyan); padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 0.8rem; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='rgba(0, 210, 255, 0.15)'" onmouseout="this.style.background='rgba(0, 210, 255, 0.08)'">👁️ Reveal Old Secret</button>
+          <button onclick="startSecurityAction('reset')" style="flex: 1; background: rgba(157, 78, 221, 0.08); border: 1px solid rgba(157, 78, 221, 0.3); color: var(--accent-purple); padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 0.8rem; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='rgba(157, 78, 221, 0.15)'" onmouseout="this.style.background='rgba(157, 78, 221, 0.08)'">🔑 Get New Secret</button>
         </div>
       </div>
 
-      <div style="display: flex; flex-direction: column; gap: 1rem; font-size: 0.9rem;">
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-          <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Email Address</span>
-          <span style="color: var(--text-primary); font-weight: 500; word-break: break-all;" id="profileModalEmail">-</span>
+      <!-- Security Action View -->
+      <div id="profileSecurityActionView" style="display: none; flex-direction: column; gap: 1.25rem;">
+        <div style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 1rem; display: flex; align-items: center; gap: 10px;">
+          <button onclick="cancelSecurityAction()" style="background: none; border: none; color: var(--accent-cyan); font-size: 1.1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;">←</button>
+          <div>
+            <h3 style="font-size: 1.1rem; font-weight: 700; color: var(--text-primary);" id="securityActionTitle">Security Authorization</h3>
+            <span style="font-size: 0.75rem; color: var(--text-secondary);" id="securityActionSubtitle">Authenticate to continue</span>
+          </div>
         </div>
 
-        <!-- Phone Number Row with Edit Option -->
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-          <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Phone Number</span>
-          <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
-            <span style="color: var(--text-primary); font-weight: 500;" id="profileModalPhone">-</span>
-            <button onclick="togglePhoneEdit(true)" id="editPhoneBtn" style="background: rgba(0, 210, 255, 0.1); border: 1px solid rgba(0, 210, 255, 0.3); color: var(--accent-cyan); font-size: 0.75rem; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.2s;">Change</button>
+        <!-- Step 1: Email OTP -->
+        <div id="securityActionStep1" style="display: flex; flex-direction: column; gap: 1rem;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.75rem;">Authorized Email Address</label>
+            <div class="input-wrapper" style="display: flex; gap: 0.5rem; align-items: center;">
+              <input class="form-input" type="email" id="securityActionEmail" readonly style="background: rgba(255, 255, 255, 0.03); border-color: rgba(255, 255, 255, 0.05); color: var(--text-muted); cursor: not-allowed; padding-left: 14px; flex: 1;">
+              <button type="button" class="auth-btn" id="securityActionSendOtpBtn" style="margin: 0; padding: 0 1rem; height: 46px; font-size: 0.85rem; width: auto; white-space: nowrap; flex-shrink: 0;" onclick="sendActionOtp()">
+                Send OTP
+              </button>
+            </div>
           </div>
-          
-          <!-- Inline Phone Edit Form Container -->
-          <div id="phoneEditContainer" style="display: none; flex-direction: column; gap: 8px; margin-top: 6px; padding: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px;">
-            <input type="text" id="newPhoneInput" placeholder="Enter new phone number" style="background: rgba(4, 6, 12, 0.6); border: 1px solid rgba(0, 210, 255, 0.2); border-radius: 6px; color: var(--text-primary); padding: 6px 10px; font-size: 0.85rem; outline: none; width: 100%;" onkeydown="if(event.key==='Enter') savePhoneNumber()">
-            <div style="display: flex; gap: 6px; justify-content: flex-end;">
-              <button onclick="togglePhoneEdit(false)" style="background: transparent; border: none; color: var(--text-muted); font-size: 0.75rem; padding: 4px 8px; cursor: pointer;">Cancel</button>
-              <button onclick="savePhoneNumber()" style="background: var(--accent-cyan); border: none; color: #04060c; font-size: 0.75rem; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-weight: 600;">Update Number</button>
+
+          <!-- Hidden OTP Input Group -->
+          <div class="form-group" id="securityActionOtpGroup" style="display: none; margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.75rem; color: var(--accent-cyan);">Enter 6-Digit Email OTP</label>
+            <div class="input-wrapper" style="display: flex; gap: 0.5rem; align-items: center;">
+              <input class="form-input" type="text" id="securityActionOtp" placeholder="123456" maxlength="6" pattern="\d{6}" style="padding-left: 14px; flex: 1;">
+              <button type="button" class="auth-btn" id="securityActionVerifyOtpBtn" disabled style="margin: 0; padding: 0 1.25rem; height: 46px; font-size: 0.85rem; width: auto; white-space: nowrap; flex-shrink: 0;" onclick="verifyActionOtp()">
+                Verify OTP
+              </button>
             </div>
           </div>
         </div>
 
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-          <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Clearance Status</span>
-          <span style="color: var(--accent-green); font-weight: 600; display: flex; align-items: center; gap: 6px;">
-            <span style="display: inline-block; width: 8px; height: 8px; background: var(--accent-green); border-radius: 50%; box-shadow: 0 0 8px var(--accent-green);"></span>
-            Active / Verified
-          </span>
+        <!-- Step 2: Backup Passkey -->
+        <div id="securityActionStep2" style="display: none; flex-direction: column; gap: 1rem;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.75rem;">Enter Backup Passkey</label>
+            <div class="input-wrapper">
+              <input class="form-input" type="password" id="securityActionPasskey" placeholder="Enter emergency passkey" style="padding-left: 14px; width: 100%;">
+            </div>
+          </div>
+          <button class="auth-btn" id="securityActionVerifyPasskeyBtn" onclick="verifyActionPasskey()">
+            Verify Passkey & Proceed
+          </button>
         </div>
 
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-          <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Enrolled Since</span>
-          <span style="color: var(--text-secondary);" id="profileModalJoined">-</span>
+        <!-- Step 3: QR Code & Secret Code Display + TOTP Validator -->
+        <div id="securityActionStep3" style="display: none; flex-direction: column; gap: 1rem; align-items: center; width: 100%;">
+          <div class="qr-setup-section" style="width: 100%; margin: 0; padding: 1rem;">
+            <div class="qr-code-wrapper" style="margin-bottom: 1rem; width: 166px; height: 166px;">
+              <img id="securityActionQrCodeImg" style="width: 150px; height: 150px;" alt="Scan to register TOTP" src="">
+            </div>
+
+            <div class="secret-key-display" style="width: 100%; margin-bottom: 0.75rem;">
+              <div style="overflow: hidden;">
+                <span style="font-size: 0.65rem; color: var(--text-muted); display: block; text-transform: uppercase;">Manual Secret Key</span>
+                <span class="secret-key-text" id="securityActionSecretKey" style="font-size: 0.75rem; letter-spacing: 0.5px; word-break: break-all;">-</span>
+              </div>
+              <button class="copy-btn" id="securityActionCopyBtn" onclick="copyActionSecret()" title="Copy Secret Key">📋</button>
+            </div>
+            
+            <div id="securityActionWarning" style="margin-bottom: 0.75rem; font-size: 0.7rem; color: var(--danger); opacity: 0.9; text-align: left; line-height: 1.3; display: flex; align-items: flex-start; gap: 6px; padding: 8px 12px; background: rgba(255, 74, 90, 0.08); border: 1px solid rgba(255, 74, 90, 0.15); border-radius: 8px; width: 100%;">
+              <span style="margin-top: 1px; flex-shrink: 0;">⚠️</span>
+              <span id="securityActionWarningText">WARNING: Store this secret key securely.</span>
+            </div>
+          </div>
+
+          <div style="text-align: center; width: 100%;">
+            <label class="form-label" style="font-size: 0.75rem;" id="securityActionTotpLabel">Enter 6-Digit Code from App</label>
+            <div class="otp-container" style="justify-content: center; gap: 6px; margin: 0.75rem 0;">
+              <input type="text" class="otp-input action-otp-input" maxlength="1" data-index="0" style="width: 40px; height: 48px; font-size: 1.25rem;">
+              <input type="text" class="otp-input action-otp-input" maxlength="1" data-index="1" style="width: 40px; height: 48px; font-size: 1.25rem;">
+              <input type="text" class="otp-input action-otp-input" maxlength="1" data-index="2" style="width: 40px; height: 48px; font-size: 1.25rem;">
+              <input type="text" class="otp-input action-otp-input" maxlength="1" data-index="3" style="width: 40px; height: 48px; font-size: 1.25rem;">
+              <input type="text" class="otp-input action-otp-input" maxlength="1" data-index="4" style="width: 40px; height: 48px; font-size: 1.25rem;">
+              <input type="text" class="otp-input action-otp-input" maxlength="1" data-index="5" style="width: 40px; height: 48px; font-size: 1.25rem;">
+            </div>
+          </div>
+
+          <button class="auth-btn" id="securityActionDoneBtn" style="display: none;" onclick="cancelSecurityAction()">
+            Done / Close
+          </button>
         </div>
       </div>
     </div>
   </div>
 
+  <script src="app.js"></script>
   <script>
     // Verify Session
     const activeSession = sessionStorage.getItem("active_session");
@@ -359,6 +458,417 @@
       } else {
         overlay.style.display = "none";
         togglePhoneEdit(false);
+        cancelSecurityAction();
+      }
+    }
+
+    function closeProfileModal(event) {
+      if (event.target === document.getElementById("profileModalOverlay")) {
+        toggleProfileModal(false);
+      }
+    }
+
+    // Escape key press handler to dismiss profile modal
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        toggleProfileModal(false);
+      }
+    });
+
+    // -------------------------------------------------------------
+    // Authenticator Secret Reveal & Rotate Flow
+    // -------------------------------------------------------------
+    let actionType = null; // 'reveal' or 'reset'
+    let actionOtpVerified = false;
+    let actionPasskeyVerified = false;
+    let actionSecret = null;
+    let actionOtpInputsSetup = false;
+
+    function showProfileNotification(message, type = "error") {
+      const notif = document.getElementById("profileNotification");
+      if (!notif) return;
+      notif.textContent = message;
+      notif.className = "notification show " + type;
+      setTimeout(() => {
+        notif.className = "notification";
+      }, 4000);
+    }
+
+    function startSecurityAction(type) {
+      actionType = type;
+      actionOtpVerified = false;
+      actionPasskeyVerified = false;
+      actionSecret = null;
+
+      // Update UI titles
+      const titleEl = document.getElementById("securityActionTitle");
+      const subtitleEl = document.getElementById("securityActionSubtitle");
+      if (type === 'reveal') {
+        titleEl.textContent = "Reveal Secret Key";
+        subtitleEl.textContent = "Verify identity to export current authenticator key";
+        document.getElementById("securityActionWarningText").innerHTML = "<b>WARNING:</b> Never share this secret key. It allows anyone to clone your authenticator.";
+      } else {
+        titleEl.textContent = "Rotate Secret Key";
+        subtitleEl.textContent = "Verify identity to generate a new authenticator key";
+        document.getElementById("securityActionWarningText").innerHTML = "<b>WARNING:</b> You must confirm the new code before saving to prevent lockouts.";
+      }
+
+      // Pre-fill email
+      document.getElementById("securityActionEmail").value = activeSession;
+      
+      // Reset inputs & steps
+      document.getElementById("securityActionOtp").value = "";
+      document.getElementById("securityActionPasskey").value = "";
+      document.getElementById("securityActionOtpGroup").style.display = "none";
+      document.getElementById("securityActionSendOtpBtn").disabled = false;
+      document.getElementById("securityActionSendOtpBtn").textContent = "Send OTP";
+      document.getElementById("securityActionSendOtpBtn").style.background = "";
+      document.getElementById("securityActionSendOtpBtn").style.borderColor = "";
+      document.getElementById("securityActionVerifyOtpBtn").disabled = true;
+      document.getElementById("securityActionVerifyOtpBtn").textContent = "Verify OTP";
+      document.getElementById("securityActionVerifyOtpBtn").style.background = "";
+
+      // Hide/Show steps
+      document.getElementById("securityActionStep1").style.display = "flex";
+      document.getElementById("securityActionStep2").style.display = "none";
+      document.getElementById("securityActionStep3").style.display = "none";
+      document.getElementById("securityActionDoneBtn").style.display = "none";
+
+      // Toggle views
+      document.getElementById("profileMainView").style.display = "none";
+      document.getElementById("profileSecurityActionView").style.display = "flex";
+
+      // Setup OTP code change listener
+      const actionOtpInput = document.getElementById("securityActionOtp");
+      const actionVerifyOtpBtn = document.getElementById("securityActionVerifyOtpBtn");
+      actionOtpInput.addEventListener("input", () => {
+        actionOtpInput.value = actionOtpInput.value.replace(/\D/g, "");
+        if (actionOtpInput.value.trim().length === 6 && !actionOtpVerified) {
+          actionVerifyOtpBtn.disabled = false;
+        } else {
+          actionVerifyOtpBtn.disabled = true;
+        }
+      });
+    }
+
+    function cancelSecurityAction() {
+      // Clear security action state
+      actionType = null;
+      actionOtpVerified = false;
+      actionPasskeyVerified = false;
+      actionSecret = null;
+
+      // Clear dynamic inputs
+      document.getElementById("securityActionOtp").value = "";
+      document.getElementById("securityActionPasskey").value = "";
+      const inputs = document.querySelectorAll(".action-otp-input");
+      inputs.forEach(inp => inp.value = "");
+
+      // Reset DOM state
+      document.getElementById("securityActionOtp").readOnly = false;
+
+      // Toggle views back
+      document.getElementById("profileSecurityActionView").style.display = "none";
+      document.getElementById("profileMainView").style.display = "flex";
+    }
+
+    async function sendActionOtp() {
+      const emailVal = activeSession;
+      const sendOtpBtn = document.getElementById("securityActionSendOtpBtn");
+      sendOtpBtn.disabled = true;
+      sendOtpBtn.innerHTML = "Sending...";
+
+      try {
+        const response = await fetch('/api/auth/send-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: emailVal })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          document.getElementById("securityActionOtpGroup").style.display = "block";
+          showProfileNotification("Verification OTP sent to your email.", "success");
+          
+          sendOtpBtn.disabled = false;
+          sendOtpBtn.innerHTML = "Resend OTP";
+
+          if (data.devOtp) {
+            console.log("DEV MODE: Email OTP is " + data.devOtp);
+            showProfileNotification("Dev Mode: Code is " + data.devOtp, "success");
+          }
+        } else {
+          showProfileNotification(data.message || "Failed to send OTP.", "error");
+          sendOtpBtn.disabled = false;
+          sendOtpBtn.innerHTML = "Send OTP";
+        }
+      } catch (err) {
+        console.error(err);
+        showProfileNotification("Server error connecting to backend.", "error");
+        sendOtpBtn.disabled = false;
+        sendOtpBtn.innerHTML = "Send OTP";
+      }
+    }
+
+    async function verifyActionOtp() {
+      const otpVal = document.getElementById("securityActionOtp").value.trim();
+      if (!otpVal || otpVal.length !== 6) {
+        showProfileNotification("Please enter the 6-digit OTP code.", "error");
+        return;
+      }
+
+      const verifyOtpBtn = document.getElementById("securityActionVerifyOtpBtn");
+      verifyOtpBtn.disabled = true;
+      verifyOtpBtn.innerHTML = "Verifying...";
+
+      try {
+        const response = await fetch('/api/auth/verify-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: activeSession, otpCode: otpVal })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          actionOtpVerified = true;
+          showProfileNotification("Email OTP verified successfully!", "success");
+          
+          // Lock OTP step elements
+          document.getElementById("securityActionOtp").readOnly = true;
+          
+          const sendOtpBtn = document.getElementById("securityActionSendOtpBtn");
+          sendOtpBtn.disabled = true;
+          sendOtpBtn.innerHTML = "Verified ✓";
+          sendOtpBtn.style.background = "rgba(0, 210, 255, 0.1)";
+          sendOtpBtn.style.borderColor = "rgba(0, 210, 255, 0.4)";
+          
+          verifyOtpBtn.disabled = true;
+          verifyOtpBtn.innerHTML = "Verified ✓";
+          verifyOtpBtn.style.background = "rgba(0, 210, 255, 0.1)";
+          
+          // Transition to Step 2 (Passkey)
+          document.getElementById("securityActionStep1").style.display = "none";
+          document.getElementById("securityActionStep2").style.display = "flex";
+        } else {
+          showProfileNotification(data.message || "Invalid OTP code.", "error");
+          verifyOtpBtn.disabled = false;
+          verifyOtpBtn.innerHTML = "Verify OTP";
+        }
+      } catch (err) {
+        console.error(err);
+        showProfileNotification("Error verifying OTP.", "error");
+        verifyOtpBtn.disabled = false;
+        verifyOtpBtn.innerHTML = "Verify OTP";
+      }
+    }
+
+    async function verifyActionPasskey() {
+      const passkey = document.getElementById("securityActionPasskey").value;
+      if (!passkey) {
+        showProfileNotification("Please enter your backup passkey.", "error");
+        return;
+      }
+
+      const verifyBtn = document.getElementById("securityActionVerifyPasskeyBtn");
+      verifyBtn.disabled = true;
+      verifyBtn.innerHTML = "Verifying...";
+
+      try {
+        const response = await fetch('/api/user/get-totp-secret', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: activeSession, passkey })
+        });
+
+        if (response.status === 429) {
+          const data = await response.json();
+          showProfileNotification("Access locked. Too many failed attempts.", "error");
+          verifyBtn.disabled = false;
+          verifyBtn.innerHTML = "Verify Passkey & Proceed";
+          return;
+        }
+
+        const data = await response.json();
+        if (data.success) {
+          actionPasskeyVerified = true;
+          showProfileNotification("Passkey verified. Loading authenticator...", "success");
+          
+          if (actionType === 'reveal') {
+            actionSecret = data.secret;
+          } else {
+            actionSecret = generateBase32Secret();
+          }
+
+          // Show Step 3 (QR/Secret Setup)
+          document.getElementById("securityActionSecretKey").textContent = actionSecret;
+          
+          // Setup QR Code
+          const label = encodeURIComponent("CyberShield:" + activeSession);
+          const issuer = encodeURIComponent("CyberShield");
+          const otpauthUrl = `otpauth://totp/${label}?secret=${actionSecret}&issuer=${issuer}`;
+          document.getElementById("securityActionQrCodeImg").src = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" + encodeURIComponent(otpauthUrl);
+
+          // Update label
+          const totpLabel = document.getElementById("securityActionTotpLabel");
+          if (actionType === 'reveal') {
+            totpLabel.textContent = "Test/Verify 6-Digit Code from App";
+          } else {
+            totpLabel.textContent = "Verify 6-Digit Code to Enroll New Key";
+          }
+
+          // Setup dynamic input boxes
+          clearActionOtpInputs();
+          if (!actionOtpInputsSetup) {
+            setupActionOtpInputs(onActionTotpSubmit);
+            actionOtpInputsSetup = true;
+          }
+
+          // Hide Step 2, Show Step 3
+          document.getElementById("securityActionStep2").style.display = "none";
+          document.getElementById("securityActionStep3").style.display = "flex";
+        } else {
+          showProfileNotification(data.message || "Invalid backup passkey credentials.", "error");
+          verifyBtn.disabled = false;
+          verifyBtn.innerHTML = "Verify Passkey & Proceed";
+        }
+      } catch (err) {
+        console.error(err);
+        showProfileNotification("Connection error during verification.", "error");
+        verifyBtn.disabled = false;
+        verifyBtn.innerHTML = "Verify Passkey & Proceed";
+      }
+    }
+
+    function copyActionSecret() {
+      const secretText = document.getElementById("securityActionSecretKey").textContent;
+      navigator.clipboard.writeText(secretText)
+        .then(() => {
+          const btn = document.getElementById("securityActionCopyBtn");
+          const orig = btn.innerHTML;
+          btn.innerHTML = "✓";
+          btn.style.color = "var(--accent-green)";
+          setTimeout(() => {
+            btn.innerHTML = orig;
+            btn.style.color = "";
+          }, 1500);
+        })
+        .catch(err => console.error("Failed to copy:", err));
+    }
+
+    function setupActionOtpInputs(onSubmit) {
+      const inputs = document.querySelectorAll(".action-otp-input");
+      inputs.forEach((input, index) => {
+        input.addEventListener("input", (e) => {
+          const value = e.target.value;
+          if (!/^\d*$/.test(value)) {
+            e.target.value = "";
+            return;
+          }
+
+          if (value.length > 0) {
+            e.target.value = value.substring(0, 1);
+            if (index < inputs.length - 1) {
+              inputs[index + 1].focus();
+            }
+          }
+
+          const allFilled = Array.from(inputs).every(inp => inp.value !== "");
+          if (allFilled && onSubmit) {
+            const fullCode = Array.from(inputs).map(inp => inp.value).join("");
+            onSubmit(fullCode);
+          }
+        });
+
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Backspace") {
+            if (input.value === "" && index > 0) {
+              inputs[index - 1].focus();
+              inputs[index - 1].value = "";
+            } else {
+              input.value = "";
+            }
+          }
+        });
+
+        input.addEventListener("paste", (e) => {
+          e.preventDefault();
+          const pastedData = e.clipboardData.getData("text").trim();
+          if (!/^\d{6}$/.test(pastedData)) return;
+
+          inputs.forEach((inp, idx) => {
+            inp.value = pastedData[idx] || "";
+          });
+
+          inputs[inputs.length - 1].focus();
+          
+          if (onSubmit) {
+            onSubmit(pastedData);
+          }
+        });
+      });
+    }
+
+    function clearActionOtpInputs() {
+      const inputs = document.querySelectorAll(".action-otp-input");
+      inputs.forEach(inp => {
+        inp.value = "";
+        inp.disabled = false;
+      });
+      if (inputs[0]) inputs[0].focus();
+    }
+
+    async function onActionTotpSubmit(code) {
+      if (actionType === 'reveal') {
+        const isValid = await verifyTOTP(actionSecret, code);
+        if (isValid) {
+          showProfileNotification("TOTP Code successfully verified! Device synced.", "success");
+          document.querySelectorAll(".action-otp-input").forEach(inp => inp.disabled = true);
+          document.getElementById("securityActionDoneBtn").style.display = "block";
+          writeTerminalLine(`[${new Date().toLocaleTimeString()}] [AUDIT] Registered authenticator key verified successfully.`, "success");
+        } else {
+          showProfileNotification("Invalid verification code. Try again.", "error");
+          clearActionOtpInputs();
+        }
+      } else {
+        const passkey = document.getElementById("securityActionPasskey").value;
+        try {
+          const response = await fetch('/api/user/update-totp-secret', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: activeSession,
+              passkey,
+              newSecret: actionSecret,
+              totpCode: code
+            })
+          });
+
+          const data = await response.json();
+          if (data.success) {
+            showProfileNotification("Authenticator key successfully rotated and saved!", "success");
+            document.querySelectorAll(".action-otp-input").forEach(inp => inp.disabled = true);
+            document.getElementById("securityActionDoneBtn").style.display = "block";
+            writeTerminalLine(`[${new Date().toLocaleTimeString()}] [AUDIT] Authenticator secret successfully rotated.`, "success");
+          } else {
+            showProfileNotification(data.message || "Failed to update authenticator secret.", "error");
+            clearActionOtpInputs();
+          }
+        } catch (err) {
+          console.error(err);
+          showProfileNotification("Error updating authenticator secret.", "error");
+          clearActionOtpInputs();
+        }
+      }
+    }
+
+    function toggleProfileModal(show) {
+      const overlay = document.getElementById("profileModalOverlay");
+      if (show) {
+        overlay.style.display = "flex";
+      } else {
+        overlay.style.display = "none";
+        togglePhoneEdit(false);
+        cancelSecurityAction();
       }
     }
 

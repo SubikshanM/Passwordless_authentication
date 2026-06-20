@@ -5,3 +5,4 @@ certs/
 backend/certs/
 *.pem
 .DS_Store
+backend/mock_db.json
