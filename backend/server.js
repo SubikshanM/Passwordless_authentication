@@ -3,7 +3,7 @@ const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
 const express = require("express");
-const { Pool } = require("pg");
+const { Pool } = require("@neondatabase/serverless");
 const ws = require("ws");
 const crypto = require("crypto");
 
