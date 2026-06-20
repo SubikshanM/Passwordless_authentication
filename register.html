@@ -82,6 +82,26 @@
               <span class="input-icon" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 1.1rem; color: var(--text-muted); pointer-events: none;">📞</span>
               <input class="form-input" type="tel" id="phone" placeholder="(555) 000-0000" style="padding-left: 42px; width: 100%;" required>
             </div>
+            <button type="button" class="auth-btn" id="sendPhoneOtpBtn" style="margin: 0; padding: 0 1rem; height: 46px; font-size: 0.85rem; width: auto; white-space: nowrap; flex-shrink: 0;" onclick="triggerSendPhoneOtp()">
+              Send OTP
+            </button>
+          </div>
+        </div>
+
+        <!-- Hidden Phone OTP Input Container -->
+        <div class="form-group" id="phoneOtpGroup" style="display: none; margin-top: 1rem;">
+          <label class="form-label" for="phoneOtp" style="color: var(--accent-cyan);">Enter Phone OTP</label>
+          <div class="input-wrapper" style="display: flex; gap: 0.5rem; align-items: center;">
+            <div style="position: relative; flex: 1;">
+              <span class="input-icon" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 1.1rem; color: var(--text-muted);">🔒</span>
+              <input class="form-input" type="text" id="phoneOtp" placeholder="123456" maxlength="6" pattern="\d{6}" style="padding-left: 42px; width: 100%;">
+            </div>
+            <button type="button" class="auth-btn" id="verifyPhoneOtpBtn" disabled style="margin: 0; padding: 0 1.25rem; height: 46px; font-size: 0.85rem; width: auto; white-space: nowrap; flex-shrink: 0;" onclick="triggerVerifyPhoneOtp()">
+              Verify Code
+            </button>
+          </div>
+          <div style="font-size: 0.80rem; margin-top: 0.5rem; color: var(--text-secondary);">
+            Didn't receive it? <a href="#" onclick="triggerSendPhoneOtp(); return false;" style="color: var(--accent-cyan); text-decoration: none; font-weight: 500;">Resend OTP</a>
           </div>
         </div>
 
@@ -180,6 +200,7 @@
     };
 
     let emailVerified = false;
+    let phoneVerified = false;
 
     // Enable/disable form submit button in Step 1
     const usernameInput = document.getElementById("username");
@@ -203,7 +224,8 @@
         passkey.trim() !== "" &&
         passkey === passkeyConfirm &&
         captchaVerified &&
-        emailVerified
+        emailVerified &&
+        phoneVerified
       ) {
         step1Btn.disabled = false;
       } else {
@@ -242,6 +264,31 @@
       }
     });
 
+    // If they modify the phone field after verification/sending, we reset the verification state
+    phoneInput.addEventListener("input", () => {
+      if (phoneVerified || document.getElementById("phoneOtpGroup").style.display !== "none") {
+        phoneVerified = false;
+        
+        phoneInput.readOnly = false;
+        document.getElementById("phoneOtp").readOnly = false;
+        document.getElementById("phoneOtp").value = "";
+        
+        const sendPhoneOtpBtn = document.getElementById("sendPhoneOtpBtn");
+        sendPhoneOtpBtn.disabled = false;
+        sendPhoneOtpBtn.innerHTML = "Send OTP";
+        sendPhoneOtpBtn.style.background = "";
+        sendPhoneOtpBtn.style.borderColor = "";
+
+        const verifyPhoneOtpBtn = document.getElementById("verifyPhoneOtpBtn");
+        verifyPhoneOtpBtn.disabled = true;
+        verifyPhoneOtpBtn.innerHTML = "Verify Code";
+        verifyPhoneOtpBtn.style.background = "";
+
+        document.getElementById("phoneOtpGroup").style.display = "none";
+        checkStep1Inputs();
+      }
+    });
+
     const emailOtpInput = document.getElementById("emailOtp");
     const verifyOtpBtn = document.getElementById("verifyOtpBtn");
 
@@ -253,6 +300,20 @@
         verifyOtpBtn.disabled = false;
       } else {
         verifyOtpBtn.disabled = true;
+      }
+    });
+
+    const phoneOtpInput = document.getElementById("phoneOtp");
+    const verifyPhoneOtpBtn = document.getElementById("verifyPhoneOtpBtn");
+
+    phoneOtpInput.addEventListener("input", () => {
+      // Keep only numbers
+      phoneOtpInput.value = phoneOtpInput.value.replace(/\D/g, "");
+      
+      if (phoneOtpInput.value.trim().length === 6 && !phoneVerified) {
+        verifyPhoneOtpBtn.disabled = false;
+      } else {
+        verifyPhoneOtpBtn.disabled = true;
       }
     });
 
@@ -353,6 +414,104 @@
         showNotification("Error verifying OTP.", "error");
         verifyOtpBtn.disabled = false;
         verifyOtpBtn.innerHTML = originalHtml;
+      }
+    }
+
+    // Inline Phone OTP trigger
+    async function triggerSendPhoneOtp() {
+      const phoneVal = phoneInput.value.trim();
+      const countryCodeVal = document.getElementById("countryCode").value;
+      if (!phoneVal || !countryCodeVal) {
+        showNotification("Please select a country code and enter a valid phone number first.", "error");
+        return;
+      }
+      
+      const fullPhone = countryCodeVal + phoneVal;
+
+      const sendPhoneOtpBtn = document.getElementById("sendPhoneOtpBtn");
+      sendPhoneOtpBtn.disabled = true;
+      const originalHtml = sendPhoneOtpBtn.innerHTML;
+      sendPhoneOtpBtn.innerHTML = "Sending...";
+
+      try {
+        const response = await fetch('/api/auth/send-phone-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: fullPhone })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          tempUser.phone = fullPhone;
+          document.getElementById("phoneOtpGroup").style.display = "block";
+          showNotification("Verification OTP sent to your phone number.", "success");
+          
+          if (data.devOtp) {
+            console.log("DEV MODE: Phone OTP is " + data.devOtp);
+            showNotification("Dev Mode: Phone OTP is " + data.devOtp, "info");
+          }
+        } else {
+          showNotification(data.message || "Failed to send Phone OTP.", "error");
+        }
+      } catch (err) {
+        console.error(err);
+        showNotification("Server error connecting to backend.", "error");
+      } finally {
+        sendPhoneOtpBtn.disabled = false;
+        sendPhoneOtpBtn.innerHTML = originalHtml;
+      }
+    }
+
+    // Inline Phone OTP verify
+    async function triggerVerifyPhoneOtp() {
+      const otpVal = document.getElementById("phoneOtp").value.trim();
+      if (!otpVal || otpVal.length !== 6) {
+        showNotification("Please enter the 6-digit OTP code.", "error");
+        return;
+      }
+
+      const verifyPhoneOtpBtn = document.getElementById("verifyPhoneOtpBtn");
+      verifyPhoneOtpBtn.disabled = true;
+      const originalHtml = verifyPhoneOtpBtn.innerHTML;
+      verifyPhoneOtpBtn.innerHTML = "Verifying...";
+
+      try {
+        const response = await fetch('/api/auth/verify-phone-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: tempUser.phone, otpCode: otpVal })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          phoneVerified = true;
+          showNotification("Phone number verified successfully!", "success");
+          
+          // Lock phone and verification elements
+          phoneInput.readOnly = true;
+          document.getElementById("phoneOtp").readOnly = true;
+          
+          const sendPhoneOtpBtn = document.getElementById("sendPhoneOtpBtn");
+          sendPhoneOtpBtn.disabled = true;
+          sendPhoneOtpBtn.innerHTML = "Verified ✓";
+          sendPhoneOtpBtn.style.background = "rgba(0, 210, 255, 0.1)";
+          sendPhoneOtpBtn.style.borderColor = "rgba(0, 210, 255, 0.4)";
+          
+          verifyPhoneOtpBtn.disabled = true;
+          verifyPhoneOtpBtn.innerHTML = "Verified ✓";
+          verifyPhoneOtpBtn.style.background = "rgba(0, 210, 255, 0.1)";
+          
+          checkStep1Inputs();
+        } else {
+          showNotification(data.message || "Invalid OTP code.", "error");
+          verifyPhoneOtpBtn.disabled = false;
+          verifyPhoneOtpBtn.innerHTML = originalHtml;
+        }
+      } catch (err) {
+        console.error(err);
+        showNotification("Error verifying OTP.", "error");
+        verifyPhoneOtpBtn.disabled = false;
+        verifyPhoneOtpBtn.innerHTML = originalHtml;
       }
     }
 
@@ -548,9 +707,32 @@
           });
 
           item.addEventListener("click", () => {
-            hiddenInput.value = country.dial_code;
-            displaySpan.textContent = `${country.flag} ${country.name} (${country.dial_code})`;
-            displaySpan.style.color = "var(--text-primary)";
+            if (hiddenInput.value !== country.dial_code) {
+              hiddenInput.value = country.dial_code;
+              displaySpan.textContent = `${country.flag} ${country.name} (${country.dial_code})`;
+              displaySpan.style.color = "var(--text-primary)";
+              
+              // Reset phone verification status if dial code changes
+              if (phoneVerified || document.getElementById("phoneOtpGroup").style.display !== "none") {
+                phoneVerified = false;
+                phoneInput.readOnly = false;
+                document.getElementById("phoneOtp").readOnly = false;
+                document.getElementById("phoneOtp").value = "";
+                
+                const sendPhoneOtpBtn = document.getElementById("sendPhoneOtpBtn");
+                sendPhoneOtpBtn.disabled = false;
+                sendPhoneOtpBtn.innerHTML = "Send OTP";
+                sendPhoneOtpBtn.style.background = "";
+                sendPhoneOtpBtn.style.borderColor = "";
+
+                const verifyPhoneOtpBtn = document.getElementById("verifyPhoneOtpBtn");
+                verifyPhoneOtpBtn.disabled = true;
+                verifyPhoneOtpBtn.innerHTML = "Verify Code";
+                verifyPhoneOtpBtn.style.background = "";
+
+                document.getElementById("phoneOtpGroup").style.display = "none";
+              }
+            }
             closeAllDropdowns();
             checkStep1Inputs();
           });

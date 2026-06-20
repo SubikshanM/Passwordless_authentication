@@ -442,6 +442,170 @@ app.post("/api/auth/verify-otp", async (req, res) => {
 });
 
 /**
+ * POST /api/auth/send-phone-otp
+ * Generates a 6-digit OTP, stores it in the database (identifying it by the phone number),
+ * and sends it to the user's mobile number via Twilio SMS API.
+ */
+app.post("/api/auth/send-phone-otp", async (req, res) => {
+  const { phone } = req.body;
+  if (!phone) {
+    return res.status(400).json({ success: false, message: "Phone number is required." });
+  }
+
+  const lockout = getOtpLockout(phone);
+
+  // Check if locked out
+  if (lockout.lockedUntil && new Date(lockout.lockedUntil) > new Date()) {
+    return res.status(429).json({
+      success: false,
+      message: "Too many verification failures. Phone OTP requests are temporarily locked.",
+      lockedUntil: lockout.lockedUntil
+    });
+  }
+
+  // Rate limit: 1 OTP request per 60 seconds
+  const now = Date.now();
+  if (now - lockout.lastOtpSent < 60 * 1000) {
+    const secondsLeft = Math.ceil((60 * 1000 - (now - lockout.lastOtpSent)) / 1000);
+    return res.status(429).json({
+      success: false,
+      message: `Please wait ${secondsLeft} seconds before requesting a new phone verification code.`
+    });
+  }
+
+  lockout.lastOtpSent = now;
+
+  try {
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes expiration
+
+    // Store in DB (using the phone number as the identifier in the email column)
+    await query(
+      "INSERT INTO otps (email, otp_code, expires_at) VALUES ($1, $2, $3)",
+      [phone, otpCode, expiresAt]
+    );
+
+    console.log(`[Phone OTP] Generated code ${otpCode} for ${phone}`);
+
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const fromNumber = process.env.TWILIO_PHONE_NUMBER;
+
+    // Check if real credentials exist (not placeholder ACXXX / dummy value)
+    const isRealCredentials = 
+      accountSid && accountSid !== "ACXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" &&
+      authToken && authToken !== "your_twilio_auth_token_here" &&
+      fromNumber && fromNumber !== "+12345678901";
+
+    if (isRealCredentials) {
+      console.log(`[Twilio] Sending SMS to: ${phone} from: ${fromNumber}`);
+      const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
+      const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+
+      const twilioRes = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Authorization": `Basic ${auth}`,
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: new URLSearchParams({
+          From: fromNumber,
+          To: phone,
+          Body: `Your CyberShield phone verification code is: ${otpCode}. Valid for 5 minutes.`
+        })
+      });
+
+      const responseBody = await twilioRes.text();
+      console.log(`[Twilio] Response Status: ${twilioRes.status}, Body: ${responseBody}`);
+
+      if (!twilioRes.ok) {
+        console.error("Twilio API error:", responseBody);
+        throw new Error("Failed to send phone verification SMS via Twilio.");
+      }
+    } else {
+      console.warn("WARNING: Twilio credentials are using placeholder or dummy values. OTP logged to console:", otpCode);
+    }
+
+    res.json({
+      success: true,
+      message: "Phone OTP sent successfully.",
+      devOtp: isRealCredentials ? undefined : otpCode
+    });
+  } catch (err) {
+    console.error("Error in /api/auth/send-phone-otp:", err);
+    res.status(500).json({ success: false, message: err.message || "Failed to process phone OTP request." });
+  }
+});
+
+/**
+ * POST /api/auth/verify-phone-otp
+ * Verifies the submitted phone OTP code.
+ */
+app.post("/api/auth/verify-phone-otp", async (req, res) => {
+  const { phone, otpCode } = req.body;
+  if (!phone || !otpCode) {
+    return res.status(400).json({ success: false, message: "Phone and OTP code are required." });
+  }
+
+  const lockout = getOtpLockout(phone);
+
+  // Check if locked out
+  if (lockout.lockedUntil && new Date(lockout.lockedUntil) > new Date()) {
+    return res.status(429).json({
+      success: false,
+      message: "Too many failed attempts. Verification locked.",
+      lockedUntil: lockout.lockedUntil
+    });
+  }
+
+  try {
+    const result = await query(
+      "SELECT * FROM otps WHERE email = $1 AND otp_code = $2 AND is_used = false AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1",
+      [phone, otpCode]
+    );
+
+    if (result.rows.length === 0) {
+      // Increment failed attempts
+      lockout.failedAttempts += 1;
+      let lockedUntil = null;
+      let durationMs = 0;
+
+      if (lockout.failedAttempts >= 5) {
+        durationMs = 60 * 60 * 1000; // 1 hour
+      } else if (lockout.failedAttempts >= 3) {
+        durationMs = 5 * 60 * 1000; // 5 minutes
+      }
+
+      if (durationMs > 0) {
+        lockedUntil = new Date(Date.now() + durationMs);
+        lockout.lockedUntil = lockedUntil;
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired OTP.",
+        failedAttempts: lockout.failedAttempts,
+        lockedUntil: lockedUntil
+      });
+    }
+
+    const otpRecord = result.rows[0];
+
+    // Mark as used
+    await query("UPDATE otps SET is_used = true WHERE id = $1", [otpRecord.id]);
+
+    // Reset lockout upon successful verification
+    lockout.failedAttempts = 0;
+    lockout.lockedUntil = null;
+
+    res.json({ success: true, message: "Phone OTP verified successfully." });
+  } catch (err) {
+    console.error("Error in /api/auth/verify-phone-otp:", err);
+    res.status(500).json({ success: false, message: "Internal server error." });
+  }
+});
+
+/**
  * 3. POST /api/auth/register
  * Completes registration by saving username, email, phone, and TOTP secret in NeonDB.
  */
