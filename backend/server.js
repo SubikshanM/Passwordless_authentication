@@ -243,6 +243,7 @@ async function query(text, params) {
       }
       if (textClean.includes("phone = $1")) {
         user.phone = params[0];
+        user.phone_verified = true;
       }
       if (textClean.includes("totp_secret = $1")) {
         user.totp_secret = params[0];
@@ -1122,7 +1123,7 @@ app.post("/api/user/update-phone", async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
-    await query("UPDATE users SET phone = $1 WHERE email = $2", [newPhone, email]);
+    await query("UPDATE users SET phone = $1, phone_verified = true WHERE email = $2", [newPhone, email]);
 
     res.json({
       success: true,
