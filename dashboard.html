@@ -374,7 +374,8 @@
   <script>
     // Verify Session
     const activeSession = sessionStorage.getItem("active_session");
-    if (!activeSession) {
+    const sessionToken = sessionStorage.getItem("session_token");
+    if (!activeSession || !sessionToken) {
       document.getElementById("dashboardContent").style.display = "none";
       document.getElementById("accessDenied").style.display = "flex";
     } else {
@@ -411,7 +412,7 @@
         const response = await fetch("/api/user/profile", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: email })
+          body: JSON.stringify({ email: email, token: sessionToken })
         });
         
         const data = await response.json();
@@ -687,7 +688,7 @@
         const response = await fetch('/api/user/get-totp-secret', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: activeSession, passkey })
+          body: JSON.stringify({ email: activeSession, passkey, token: sessionToken })
         });
 
         if (response.status === 429) {
@@ -849,7 +850,8 @@
               email: activeSession,
               passkey,
               newSecret: actionSecret,
-              totpCode: code
+              totpCode: code,
+              token: sessionToken
             })
           });
 
@@ -1011,7 +1013,7 @@
         const response = await fetch("/api/user/update-phone", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: activeSession, newPhone })
+          body: JSON.stringify({ email: activeSession, newPhone, token: sessionToken })
         });
 
         const data = await response.json();

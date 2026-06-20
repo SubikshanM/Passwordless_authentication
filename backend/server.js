@@ -66,6 +66,51 @@ app.use((req, res, next) => {
   next();
 });
 
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+
+function generateSessionToken(email) {
+  const expiresAt = Date.now() + 2 * 60 * 60 * 1000; // 2 hours
+  const data = `${email}:${expiresAt}`;
+  const signature = crypto.createHmac("sha256", SESSION_SECRET).update(data).digest("hex");
+  return Buffer.from(`${data}:${signature}`).toString("base64");
+}
+
+function verifySessionToken(token) {
+  if (!token) return null;
+  try {
+    const decoded = Buffer.from(token, "base64").toString("utf-8");
+    const parts = decoded.split(":");
+    if (parts.length < 3) return null;
+    const email = parts[0];
+    const expiresAt = parseInt(parts[1], 10);
+    const signature = parts.slice(2).join(":");
+
+    if (expiresAt < Date.now()) return null;
+
+    const expectedSignature = crypto.createHmac("sha256", SESSION_SECRET).update(`${email}:${expiresAt}`).digest("hex");
+    if (signature !== expectedSignature) return null;
+
+    return email;
+  } catch (err) {
+    return null;
+  }
+}
+
+// Middleware to verify session
+function requireSession(req, res, next) {
+  const { email, token } = req.body;
+  if (!email || !token) {
+    return res.status(401).json({ success: false, message: "Unauthorized. Session context missing." });
+  }
+
+  const verifiedEmail = verifySessionToken(token);
+  if (!verifiedEmail || verifiedEmail !== email) {
+    return res.status(401).json({ success: false, message: "Unauthorized. Invalid or expired session." });
+  }
+
+  next();
+}
+
 // Serve static frontend files from the parent directory (root folder)
 app.use(express.static(path.join(__dirname, "..")));
 
@@ -247,6 +292,13 @@ async function query(text, params) {
       }
       if (textClean.includes("totp_secret = $1")) {
         user.totp_secret = params[0];
+      }
+      if (textClean.includes("backup_passkey = $1")) {
+        user.backup_passkey = params[0];
+        if (textClean.includes("failed_passkey_attempts = 0")) {
+          user.failed_passkey_attempts = 0;
+          user.passkey_locked_until = null;
+        }
       }
       saveMockDb();
     }
@@ -608,6 +660,347 @@ app.post("/api/auth/verify-phone-otp", async (req, res) => {
 });
 
 /**
+ * 2.1 POST /api/auth/reset-passkey-send-email-otp
+ * Sends email verification OTP for resetting passkey.
+ */
+app.post("/api/auth/reset-passkey-send-email-otp", async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ success: false, message: "Email is required." });
+  }
+
+  try {
+    // Verify user is registered
+    const userRes = await query("SELECT id FROM users WHERE email = $1", [email]);
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Email is not registered." });
+    }
+
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes validity
+
+    // Store in database (using email + "_reset" as the identifier in the email column)
+    const identifier = email + "_reset";
+    await query(
+      "INSERT INTO otps (email, otp_code, expires_at) VALUES ($1, $2, $3)",
+      [identifier, otpCode, expiresAt]
+    );
+
+    const apiKey = process.env.BREVO_API_KEY;
+    const senderEmail = process.env.BREVO_SENDER_EMAIL || "no-reply@cybershield.io";
+
+    if (apiKey) {
+      const url = "https://api.brevo.com/v3/smtp/email";
+      const brevoRes = await fetch(url, {
+        method: "POST",
+        headers: {
+          "accept": "application/json",
+          "api-key": apiKey,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          sender: { name: "CyberShield Security", email: senderEmail },
+          to: [{ email: email }],
+          subject: "Emergency Backup Passkey Reset Request",
+          htmlContent: `
+            <div style="font-family: Arial, sans-serif; background-color: #04060c; color: #ffffff; padding: 25px; border-radius: 12px; border: 1px solid #00d2ff; max-width: 500px; margin: 0 auto;">
+              <h2 style="color: #00d2ff; text-align: center; margin-bottom: 20px; font-weight: bold; letter-spacing: 1px;">CyberShield Security Portal</h2>
+              <p style="text-align: center; font-size: 1.1rem; color: #ccd6f6;">You requested to reset your emergency backup passkey. Please verify your email using this code:</p>
+              <div style="background-color: #0c101b; padding: 15px; border-radius: 8px; text-align: center; font-size: 2.5rem; font-weight: bold; letter-spacing: 6px; color: #00d2ff; margin: 25px 0; border: 1px dashed rgba(0, 210, 255, 0.3);">
+                ${otpCode}
+              </div>
+              <p style="text-align: center; font-size: 0.85rem; color: #8892b0; margin-top: 25px;">This OTP will expire in 5 minutes. If you did not request a passkey reset, please secure your account immediately.</p>
+            </div>
+          `,
+        }),
+      });
+
+      const responseBody = await brevoRes.text();
+      if (!brevoRes.ok) {
+        console.error("Brevo API error:", responseBody);
+        throw new Error("Failed to send reset email via Brevo.");
+      }
+    } else {
+      console.warn("WARNING: BREVO_API_KEY is not defined. Reset OTP logged to console:", otpCode);
+    }
+
+    res.json({
+      success: true,
+      message: "Reset Email OTP sent successfully.",
+      devOtp: apiKey ? undefined : otpCode
+    });
+  } catch (err) {
+    console.error("Error in /api/auth/reset-passkey-send-email-otp:", err);
+    res.status(500).json({ success: false, message: "Failed to send verification email." });
+  }
+});
+
+/**
+ * 2.2 POST /api/auth/reset-passkey-verify-email-otp
+ * Verifies email OTP code.
+ */
+app.post("/api/auth/reset-passkey-verify-email-otp", async (req, res) => {
+  const { email, otpCode } = req.body;
+  if (!email || !otpCode) {
+    return res.status(400).json({ success: false, message: "Email and OTP code are required." });
+  }
+
+  const identifier = email + "_reset";
+  const lockout = getOtpLockout(identifier);
+
+  if (lockout.lockedUntil && new Date(lockout.lockedUntil) > new Date()) {
+    return res.status(429).json({
+      success: false,
+      message: "Too many failed attempts. Verification locked.",
+      lockedUntil: lockout.lockedUntil
+    });
+  }
+
+  try {
+    const result = await query(
+      "SELECT id FROM otps WHERE email = $1 AND otp_code = $2 AND is_used = false AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1",
+      [identifier, otpCode]
+    );
+
+    if (result.rows.length === 0) {
+      lockout.failedAttempts++;
+      let lockedUntil = null;
+      let durationMs = 0;
+
+      if (lockout.failedAttempts >= 5) {
+        durationMs = 60 * 60 * 1000; // 1 hour lockout
+      } else if (lockout.failedAttempts >= 3) {
+        durationMs = 5 * 60 * 1000; // 5 minutes lockout
+      }
+
+      if (durationMs > 0) {
+        lockedUntil = new Date(Date.now() + durationMs);
+        lockout.lockedUntil = lockedUntil;
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired OTP.",
+        failedAttempts: lockout.failedAttempts,
+        lockedUntil: lockedUntil
+      });
+    }
+
+    res.json({ success: true, message: "Email OTP verified." });
+  } catch (err) {
+    console.error("Error in /api/auth/reset-passkey-verify-email-otp:", err);
+    res.status(500).json({ success: false, message: "Internal server error." });
+  }
+});
+
+/**
+ * 2.3 POST /api/auth/reset-passkey-send-phone-otp
+ * Sends SMS verification OTP for resetting passkey.
+ */
+app.post("/api/auth/reset-passkey-send-phone-otp", async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ success: false, message: "Email is required." });
+  }
+
+  try {
+    const userRes = await query("SELECT phone FROM users WHERE email = $1", [email]);
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    const phone = userRes.rows[0].phone;
+    if (!phone) {
+      return res.status(400).json({ success: false, message: "No registered phone number found for this user." });
+    }
+
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    // Store in database (using phone + "_reset" as the identifier in the email column)
+    const identifier = phone + "_reset";
+    await query(
+      "INSERT INTO otps (email, otp_code, expires_at) VALUES ($1, $2, $3)",
+      [identifier, otpCode, expiresAt]
+    );
+
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const fromNumber = process.env.TWILIO_PHONE_NUMBER;
+
+    const isRealCredentials = 
+      accountSid && accountSid !== "ACXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" &&
+      authToken && authToken !== "your_twilio_auth_token_here" &&
+      fromNumber && fromNumber !== "+12345678901";
+
+    if (isRealCredentials) {
+      console.log(`[Twilio] Sending Reset SMS to: ${phone} from: ${fromNumber}`);
+      const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
+      const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+
+      const twilioRes = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Authorization": `Basic ${auth}`,
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: new URLSearchParams({
+          From: fromNumber,
+          To: phone,
+          Body: `Your CyberShield emergency passkey reset code is: ${otpCode}. Valid for 5 minutes.`
+        })
+      });
+
+      const body = await twilioRes.text();
+      if (!twilioRes.ok) {
+        console.error("Twilio API error:", body);
+        throw new Error("Failed to send reset phone SMS via Twilio.");
+      }
+    } else {
+      console.warn("WARNING: Twilio credentials are using placeholders. Reset OTP logged to console:", otpCode);
+    }
+
+    res.json({
+      success: true,
+      message: "Reset Phone OTP sent successfully.",
+      devOtp: isRealCredentials ? undefined : otpCode
+    });
+  } catch (err) {
+    console.error("Error in /api/auth/reset-passkey-send-phone-otp:", err);
+    res.status(500).json({ success: false, message: "Failed to send SMS." });
+  }
+});
+
+/**
+ * 2.4 POST /api/auth/reset-passkey-verify-phone-otp
+ * Verifies phone OTP code.
+ */
+app.post("/api/auth/reset-passkey-verify-phone-otp", async (req, res) => {
+  const { email, otpCode } = req.body;
+  if (!email || !otpCode) {
+    return res.status(400).json({ success: false, message: "Email and OTP code are required." });
+  }
+
+  try {
+    const userRes = await query("SELECT phone FROM users WHERE email = $1", [email]);
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    const phone = userRes.rows[0].phone;
+    const identifier = phone + "_reset";
+    const lockout = getOtpLockout(identifier);
+
+    if (lockout.lockedUntil && new Date(lockout.lockedUntil) > new Date()) {
+      return res.status(429).json({
+        success: false,
+        message: "Too many failed attempts. Verification locked.",
+        lockedUntil: lockout.lockedUntil
+      });
+    }
+
+    const result = await query(
+      "SELECT id FROM otps WHERE email = $1 AND otp_code = $2 AND is_used = false AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1",
+      [identifier, otpCode]
+    );
+
+    if (result.rows.length === 0) {
+      lockout.failedAttempts++;
+      let lockedUntil = null;
+      let durationMs = 0;
+
+      if (lockout.failedAttempts >= 5) {
+        durationMs = 60 * 60 * 1000;
+      } else if (lockout.failedAttempts >= 3) {
+        durationMs = 5 * 60 * 1000;
+      }
+
+      if (durationMs > 0) {
+        lockedUntil = new Date(Date.now() + durationMs);
+        lockout.lockedUntil = lockedUntil;
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired OTP.",
+        failedAttempts: lockout.failedAttempts,
+        lockedUntil: lockedUntil
+      });
+    }
+
+    res.json({ success: true, message: "Phone OTP verified." });
+  } catch (err) {
+    console.error("Error in /api/auth/reset-passkey-verify-phone-otp:", err);
+    res.status(500).json({ success: false, message: "Internal server error." });
+  }
+});
+
+/**
+ * 2.5 POST /api/auth/reset-passkey-submit
+ * Finalizes Passkey Reset after verifying both email and phone OTPs.
+ */
+app.post("/api/auth/reset-passkey-submit", async (req, res) => {
+  const { email, newPasskey, emailOtpCode, phoneOtpCode } = req.body;
+  if (!email || !newPasskey || !emailOtpCode || !phoneOtpCode) {
+    return res.status(400).json({ success: false, message: "All parameters are required." });
+  }
+
+  try {
+    // 1. Look up user details
+    const userRes = await query("SELECT phone FROM users WHERE email = $1", [email]);
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+    const phone = userRes.rows[0].phone;
+
+    // 2. Verify Email OTP
+    const emailIdentifier = email + "_reset";
+    const emailOtpResult = await query(
+      "SELECT id FROM otps WHERE email = $1 AND otp_code = $2 AND is_used = false AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1",
+      [emailIdentifier, emailOtpCode]
+    );
+    if (emailOtpResult.rows.length === 0) {
+      return res.status(400).json({ success: false, message: "Invalid or expired email OTP." });
+    }
+
+    // 3. Verify Phone OTP
+    const phoneIdentifier = phone + "_reset";
+    const phoneOtpResult = await query(
+      "SELECT id FROM otps WHERE email = $1 AND otp_code = $2 AND is_used = false AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1",
+      [phoneIdentifier, phoneOtpCode]
+    );
+    if (phoneOtpResult.rows.length === 0) {
+      return res.status(400).json({ success: false, message: "Invalid or expired phone OTP." });
+    }
+
+    // 4. Mark both OTPs as used
+    await query("UPDATE otps SET is_used = true WHERE id = $1", [emailOtpResult.rows[0].id]);
+    await query("UPDATE otps SET is_used = true WHERE id = $1", [phoneOtpResult.rows[0].id]);
+
+    // 5. Encrypt new passkey and save it
+    const encryptedBackupPasskey = encryptAsymmetric(newPasskey);
+    await query(
+      "UPDATE users SET backup_passkey = $1, failed_passkey_attempts = 0, passkey_locked_until = NULL WHERE email = $2",
+      [encryptedBackupPasskey, email]
+    );
+
+    // Reset lockouts for OTPs
+    const eLockout = getOtpLockout(emailIdentifier);
+    eLockout.failedAttempts = 0;
+    eLockout.lockedUntil = null;
+
+    const pLockout = getOtpLockout(phoneIdentifier);
+    pLockout.failedAttempts = 0;
+    pLockout.lockedUntil = null;
+
+    res.json({ success: true, message: "Passkey reset successfully." });
+  } catch (err) {
+    console.error("Error in /api/auth/reset-passkey-submit:", err);
+    res.status(500).json({ success: false, message: "Failed to reset backup passkey." });
+  }
+});
+
+/**
  * 3. POST /api/auth/register
  * Completes registration by saving username, email, phone, and TOTP secret in NeonDB.
  */
@@ -747,11 +1140,15 @@ app.post("/api/auth/login-step1", async (req, res) => {
       }
     }
 
+    // Mask the phone number to preserve privacy while helping the user identify it
+    const phoneMasked = user.phone ? user.phone.replace(/.(?=.{4})/g, "*") : "";
+
     res.json({
       success: true,
       message: "Credentials verified.",
       totpSecret: decryptAsymmetric(user.totp_secret),
-      passkeyLockedUntil: user.passkey_locked_until
+      passkeyLockedUntil: user.passkey_locked_until,
+      phoneMasked
     });
   } catch (err) {
     console.error("Error in /api/auth/login-step1:", err);
@@ -798,7 +1195,8 @@ app.post("/api/auth/verify-totp", async (req, res) => {
         "UPDATE users SET failed_totp_attempts = 0, totp_locked_until = NULL WHERE email = $1",
         [email]
       );
-      return res.json({ success: true, message: "TOTP verified successfully." });
+      const sessionToken = generateSessionToken(email);
+      return res.json({ success: true, message: "TOTP verified successfully.", token: sessionToken });
     } else {
       // Increment failure count
       const attempts = (user.failed_totp_attempts || 0) + 1;
@@ -837,7 +1235,7 @@ app.post("/api/auth/verify-totp", async (req, res) => {
  * 5. POST /api/user/profile
  * Retrieves username, email, phone, and created_at details for the active session.
  */
-app.post("/api/user/profile", async (req, res) => {
+app.post("/api/user/profile", requireSession, async (req, res) => {
   const { email } = req.body;
   if (!email) {
     return res.status(400).json({ success: false, message: "Email is required." });
@@ -1096,10 +1494,12 @@ app.post("/api/auth/magic-login", async (req, res) => {
       [email]
     );
 
+    const sessionToken = generateSessionToken(user.email);
     res.json({
       success: true,
       message: "Verification successful.",
-      email: user.email
+      email: user.email,
+      token: sessionToken
     });
   } catch (err) {
     console.error("Error in /api/auth/magic-login:", err);
@@ -1111,7 +1511,7 @@ app.post("/api/auth/magic-login", async (req, res) => {
  * 8. POST /api/user/update-phone
  * Updates the user's phone number.
  */
-app.post("/api/user/update-phone", async (req, res) => {
+app.post("/api/user/update-phone", requireSession, async (req, res) => {
   const { email, newPhone } = req.body;
   if (!email || !newPhone) {
     return res.status(400).json({ success: false, message: "Email and new phone number are required." });
@@ -1139,7 +1539,7 @@ app.post("/api/user/update-phone", async (req, res) => {
  * 9. POST /api/user/get-totp-secret
  * Decrypts and returns the existing TOTP secret key after checking backup passkey.
  */
-app.post("/api/user/get-totp-secret", async (req, res) => {
+app.post("/api/user/get-totp-secret", requireSession, async (req, res) => {
   const { email, passkey } = req.body;
   if (!email || !passkey) {
     return res.status(400).json({ success: false, message: "Email and backup passkey are required." });
@@ -1224,7 +1624,7 @@ app.post("/api/user/get-totp-secret", async (req, res) => {
  * 10. POST /api/user/update-totp-secret
  * Validates new TOTP and saves the encrypted secret.
  */
-app.post("/api/user/update-totp-secret", async (req, res) => {
+app.post("/api/user/update-totp-secret", requireSession, async (req, res) => {
   const { email, passkey, newSecret, totpCode } = req.body;
   if (!email || !passkey || !newSecret || !totpCode) {
     return res.status(400).json({ success: false, message: "All fields are required." });

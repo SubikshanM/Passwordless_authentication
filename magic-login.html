@@ -152,6 +152,7 @@
           
           // Save active email session
           sessionStorage.setItem("active_session", data.email);
+          sessionStorage.setItem("session_token", data.token);
           
           setTimeout(() => {
             window.location.href = "dashboard.html";

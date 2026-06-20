@@ -91,8 +91,77 @@
         </button>
       </form>
 
+      <div style="text-align: center; margin-top: 1rem; margin-bottom: 1.5rem;">
+        <a href="#" onclick="showPasskeyResetBlock(); return false;" style="font-size: 0.8rem; color: var(--accent-cyan); text-decoration: none; font-weight: 500; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">Forgot your backup passkey?</a>
+      </div>
+
       <button class="auth-btn btn-secondary" onclick="goBackToStep2()">
         Back to OTP
+      </button>
+    </div>
+
+    <!-- Step 4: Backup Passkey Reset -->
+    <div class="step-content" id="step4">
+      <div style="text-align: center; margin-bottom: 1.5rem;">
+        <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--accent-cyan);">Reset Backup Passkey</h3>
+        <p style="font-size: 0.85rem; color: var(--text-secondary);" id="resetSub">Complete verification to register a new emergency passkey.</p>
+      </div>
+
+      <!-- Step 4A: Email OTP Verification -->
+      <div id="resetEmailContainer" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 1rem;">
+        <div class="form-group" style="margin-bottom: 0.5rem;">
+          <label class="form-label">Email Verification</label>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <input class="form-input" type="text" id="resetEmailDisplay" disabled style="opacity: 0.7; flex: 1;">
+            <button class="auth-btn" id="sendResetEmailOtpBtn" onclick="sendResetEmailOtp()" style="margin: 0; padding: 6px 12px; font-size: 0.8rem; width: auto; height: 38px;">Send OTP</button>
+          </div>
+        </div>
+        <div class="form-group" id="resetEmailOtpGroup" style="display: none; margin-bottom: 0;">
+          <label class="form-label" for="resetEmailOtp">Enter Email OTP</label>
+          <input class="form-input" type="text" id="resetEmailOtp" placeholder="6-digit code" maxlength="6">
+          <button class="auth-btn" onclick="verifyResetEmailOtp()" style="margin-top: 10px; height: 38px;">Verify Email</button>
+        </div>
+      </div>
+
+      <!-- Step 4B: Phone OTP Verification -->
+      <div id="resetPhoneContainer" style="display: none; flex-direction: column; gap: 12px; margin-bottom: 1rem;">
+        <div class="form-group" style="margin-bottom: 0.5rem;">
+          <label class="form-label">Phone Verification</label>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <input class="form-input" type="text" id="resetPhoneDisplay" disabled style="opacity: 0.7; flex: 1;">
+            <button class="auth-btn" id="sendResetPhoneOtpBtn" onclick="sendResetPhoneOtp()" style="margin: 0; padding: 6px 12px; font-size: 0.8rem; width: auto; height: 38px;">Send OTP</button>
+          </div>
+        </div>
+        <div class="form-group" id="resetPhoneOtpGroup" style="display: none; margin-bottom: 0;">
+          <label class="form-label" for="resetPhoneOtp">Enter Phone OTP</label>
+          <input class="form-input" type="text" id="resetPhoneOtp" placeholder="6-digit code" maxlength="6">
+          <button class="auth-btn" onclick="verifyResetPhoneOtp()" style="margin-top: 10px; height: 38px;">Verify Phone</button>
+        </div>
+      </div>
+
+      <!-- Step 4C: Input New Passkey -->
+      <form id="resetPasskeyForm" onsubmit="event.preventDefault(); submitNewPasskey();" style="display: none; flex-direction: column; gap: 12px; margin-bottom: 1rem;">
+        <div class="form-group">
+          <label class="form-label" for="newPasskey">New Backup Passkey</label>
+          <div class="input-wrapper">
+            <span class="input-icon">🔑</span>
+            <input class="form-input" type="password" id="newPasskey" placeholder="Enter new emergency passkey" required minlength="8">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="confirmNewPasskey">Confirm New Backup Passkey</label>
+          <div class="input-wrapper">
+            <span class="input-icon">🔒</span>
+            <input class="form-input" type="password" id="confirmNewPasskey" placeholder="Confirm passkey" required minlength="8">
+          </div>
+        </div>
+        <button class="auth-btn" type="submit" id="submitResetBtn">
+          Save New Passkey <span class="icon-shield"></span>
+        </button>
+      </form>
+
+      <button class="auth-btn btn-secondary" onclick="goBackToStep3()">
+        Back to Recovery
       </button>
     </div>
   </div>
@@ -232,7 +301,8 @@
           registeredUser = {
             email: email,
             secret: data.totpSecret,
-            passkeyLockedUntil: data.passkeyLockedUntil
+            passkeyLockedUntil: data.passkeyLockedUntil,
+            phoneMasked: data.phoneMasked
           };
 
           // Populate Step 2 context text
@@ -266,6 +336,7 @@
               const verifyData = await verifyRes.json();
               if (verifyData.success) {
                 sessionStorage.setItem("active_session", registeredUser.email);
+                sessionStorage.setItem("session_token", verifyData.token);
                 showNotification("Access granted! Opening secure dashboard...", "success");
                 setTimeout(() => {
                   window.location.href = "dashboard.html";
@@ -399,6 +470,235 @@
       } finally {
         recoveryBtn.disabled = false;
         recoveryBtn.innerHTML = originalHtml;
+      }
+    }
+
+    let emailOtpVerified = false;
+    let phoneOtpVerified = false;
+
+    function showPasskeyResetBlock() {
+      if (!registeredUser) {
+        showNotification("Account context is missing. Please start login again.", "error");
+        return;
+      }
+      document.getElementById("step3").classList.remove("active");
+      document.getElementById("step4").classList.add("active");
+      
+      // Reset variables
+      emailOtpVerified = false;
+      phoneOtpVerified = false;
+
+      // Reset form states
+      document.getElementById("resetEmailDisplay").value = registeredUser.email;
+      document.getElementById("resetEmailOtpGroup").style.display = "none";
+      document.getElementById("resetEmailOtp").value = "";
+      
+      const sendEmailBtn = document.getElementById("sendResetEmailOtpBtn");
+      sendEmailBtn.disabled = false;
+      sendEmailBtn.innerHTML = "Send OTP";
+      
+      // Masked phone display
+      document.getElementById("resetPhoneDisplay").value = registeredUser.phoneMasked || "No phone registered";
+      document.getElementById("resetPhoneOtpGroup").style.display = "none";
+      document.getElementById("resetPhoneOtp").value = "";
+      
+      const sendPhoneBtn = document.getElementById("sendResetPhoneOtpBtn");
+      sendPhoneBtn.disabled = false;
+      sendPhoneBtn.innerHTML = "Send OTP";
+
+      // Hide containers
+      document.getElementById("resetEmailContainer").style.display = "flex";
+      document.getElementById("resetPhoneContainer").style.display = "none";
+      document.getElementById("resetPasskeyForm").style.display = "none";
+      document.getElementById("newPasskey").value = "";
+      document.getElementById("confirmNewPasskey").value = "";
+      
+      document.getElementById("resetSub").textContent = "Step 1/3: Verify your email address.";
+    }
+
+    function goBackToStep3() {
+      document.getElementById("step4").classList.remove("active");
+      document.getElementById("step3").classList.add("active");
+    }
+
+    async function sendResetEmailOtp() {
+      const sendBtn = document.getElementById("sendResetEmailOtpBtn");
+      sendBtn.disabled = true;
+      sendBtn.innerHTML = "Sending...";
+
+      try {
+        const response = await fetch('/api/auth/reset-passkey-send-email-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: registeredUser.email })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+          showNotification("Verification code sent to your email.", "success");
+          document.getElementById("resetEmailOtpGroup").style.display = "block";
+          if (data.devOtp) {
+            console.log("DEV MODE: Email Reset OTP is " + data.devOtp);
+            showNotification("Dev Mode: Code is " + data.devOtp, "success");
+          }
+        } else {
+          showNotification(data.message || "Failed to send OTP.", "error");
+          sendBtn.disabled = false;
+          sendBtn.innerHTML = "Send OTP";
+        }
+      } catch (err) {
+        console.error(err);
+        showNotification("Server communication error.", "error");
+        sendBtn.disabled = false;
+        sendBtn.innerHTML = "Send OTP";
+      }
+    }
+
+    async function verifyResetEmailOtp() {
+      const otpCode = document.getElementById("resetEmailOtp").value.trim();
+      if (!otpCode || otpCode.length !== 6) {
+        showNotification("Please enter a valid 6-digit verification code.", "error");
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/auth/reset-passkey-verify-email-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: registeredUser.email, otpCode })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+          showNotification("Email verified successfully!", "success");
+          emailOtpVerified = true;
+          
+          // Move to Step 4B (Phone)
+          document.getElementById("resetEmailContainer").style.display = "none";
+          document.getElementById("resetPhoneContainer").style.display = "flex";
+          document.getElementById("resetSub").textContent = "Step 2/3: Verify your phone number.";
+        } else {
+          showNotification(data.message || "Invalid or expired verification code.", "error");
+        }
+      } catch (err) {
+        console.error(err);
+        showNotification("Verification server error.", "error");
+      }
+    }
+
+    async function sendResetPhoneOtp() {
+      const sendBtn = document.getElementById("sendResetPhoneOtpBtn");
+      sendBtn.disabled = true;
+      sendBtn.innerHTML = "Sending...";
+
+      try {
+        const response = await fetch('/api/auth/reset-passkey-send-phone-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: registeredUser.email })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+          showNotification("Verification code sent to your registered phone number.", "success");
+          document.getElementById("resetPhoneOtpGroup").style.display = "block";
+          if (data.devOtp) {
+            console.log("DEV MODE: Phone Reset OTP is " + data.devOtp);
+            showNotification("Dev Mode: Code is " + data.devOtp, "success");
+          }
+        } else {
+          showNotification(data.message || "Failed to send SMS.", "error");
+          sendBtn.disabled = false;
+          sendBtn.innerHTML = "Send OTP";
+        }
+      } catch (err) {
+        console.error(err);
+        showNotification("SMS dispatch communication error.", "error");
+        sendBtn.disabled = false;
+        sendBtn.innerHTML = "Send OTP";
+      }
+    }
+
+    async function verifyResetPhoneOtp() {
+      const otpCode = document.getElementById("resetPhoneOtp").value.trim();
+      if (!otpCode || otpCode.length !== 6) {
+        showNotification("Please enter a valid 6-digit verification code.", "error");
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/auth/reset-passkey-verify-phone-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: registeredUser.email, otpCode })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+          showNotification("Phone number verified successfully!", "success");
+          phoneOtpVerified = true;
+          
+          // Move to Step 4C (Reset Passkey Form)
+          document.getElementById("resetPhoneContainer").style.display = "none";
+          document.getElementById("resetPasskeyForm").style.display = "flex";
+          document.getElementById("resetSub").textContent = "Step 3/3: Register your new passkey.";
+        } else {
+          showNotification(data.message || "Invalid or expired verification code.", "error");
+        }
+      } catch (err) {
+        console.error(err);
+        showNotification("Verification server error.", "error");
+      }
+    }
+
+    async function submitNewPasskey() {
+      const newPasskey = document.getElementById("newPasskey").value;
+      const confirmPasskey = document.getElementById("confirmNewPasskey").value;
+      const emailOtpCode = document.getElementById("resetEmailOtp").value.trim();
+      const phoneOtpCode = document.getElementById("resetPhoneOtp").value.trim();
+
+      if (!newPasskey || newPasskey.length < 8) {
+        showNotification("New passkey must be at least 8 characters long.", "error");
+        return;
+      }
+      if (newPasskey !== confirmPasskey) {
+        showNotification("New passkeys do not match.", "error");
+        return;
+      }
+
+      const submitBtn = document.getElementById("submitResetBtn");
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = "Saving Passkey...";
+
+      try {
+        const response = await fetch('/api/auth/reset-passkey-submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: registeredUser.email,
+            newPasskey,
+            emailOtpCode,
+            phoneOtpCode
+          })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+          showNotification("Passkey reset successful! Returning to recovery login...", "success");
+          setTimeout(() => {
+            // Reset wizard UI and go back to Step 3
+            goBackToStep3();
+          }, 2000);
+        } else {
+          showNotification(data.message || "Failed to update backup passkey.", "error");
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = "Save New Passkey <span class='icon-shield'></span>";
+        }
+      } catch (err) {
+        console.error(err);
+        showNotification("Server error during passkey update.", "error");
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = "Save New Passkey <span class='icon-shield'></span>";
       }
     }
   </script>
