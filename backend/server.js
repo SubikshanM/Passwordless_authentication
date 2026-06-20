@@ -256,6 +256,25 @@ async function query(text, params) {
 // API ENDPOINTS
 // -------------------------------------------------------------
 
+// In-memory rate limiting and progressive lockout storage for email OTP verification
+const otpLockouts = new Map();
+
+function getOtpLockout(email) {
+  if (!otpLockouts.has(email)) {
+    otpLockouts.set(email, {
+      failedAttempts: 0,
+      lockedUntil: null,
+      lastOtpSent: 0
+    });
+  }
+  const data = otpLockouts.get(email);
+  if (data.lockedUntil && new Date(data.lockedUntil) < new Date()) {
+    data.failedAttempts = 0;
+    data.lockedUntil = null;
+  }
+  return data;
+}
+
 /**
  * 1. POST /api/auth/send-otp
  * Generates a 6-digit OTP, stores it in the database, and sends it to the email via Brevo.
@@ -265,6 +284,29 @@ app.post("/api/auth/send-otp", async (req, res) => {
   if (!email) {
     return res.status(400).json({ success: false, message: "Email address is required." });
   }
+
+  const lockout = getOtpLockout(email);
+
+  // Check if email is currently locked out
+  if (lockout.lockedUntil && new Date(lockout.lockedUntil) > new Date()) {
+    return res.status(429).json({
+      success: false,
+      message: "Too many verification failures. OTP requests are temporarily locked.",
+      lockedUntil: lockout.lockedUntil
+    });
+  }
+
+  // Rate limit: 1 OTP request per 60 seconds
+  const now = Date.now();
+  if (now - lockout.lastOtpSent < 60 * 1000) {
+    const secondsLeft = Math.ceil((60 * 1000 - (now - lockout.lastOtpSent)) / 1000);
+    return res.status(429).json({
+      success: false,
+      message: `Please wait ${secondsLeft} seconds before requesting a new verification code.`
+    });
+  }
+
+  lockout.lastOtpSent = now;
 
   try {
     // Generate a 6-digit random code
@@ -339,6 +381,17 @@ app.post("/api/auth/verify-otp", async (req, res) => {
     return res.status(400).json({ success: false, message: "Email and OTP code are required." });
   }
 
+  const lockout = getOtpLockout(email);
+
+  // Check if locked out
+  if (lockout.lockedUntil && new Date(lockout.lockedUntil) > new Date()) {
+    return res.status(429).json({
+      success: false,
+      message: "Too many failed attempts. Verification locked.",
+      lockedUntil: lockout.lockedUntil
+    });
+  }
+
   try {
     const result = await query(
       "SELECT * FROM otps WHERE email = $1 AND otp_code = $2 AND is_used = false AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1",
@@ -346,13 +399,38 @@ app.post("/api/auth/verify-otp", async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(400).json({ success: false, message: "Invalid or expired OTP." });
+      // Increment failed attempts
+      lockout.failedAttempts += 1;
+      let lockedUntil = null;
+      let durationMs = 0;
+
+      if (lockout.failedAttempts >= 5) {
+        durationMs = 60 * 60 * 1000; // 1 hour
+      } else if (lockout.failedAttempts >= 3) {
+        durationMs = 5 * 60 * 1000; // 5 minutes
+      }
+
+      if (durationMs > 0) {
+        lockedUntil = new Date(Date.now() + durationMs);
+        lockout.lockedUntil = lockedUntil;
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired OTP.",
+        failedAttempts: lockout.failedAttempts,
+        lockedUntil: lockedUntil
+      });
     }
 
     const otpRecord = result.rows[0];
 
     // Mark as used
     await query("UPDATE otps SET is_used = true WHERE id = $1", [otpRecord.id]);
+
+    // Reset lockout upon successful verification
+    lockout.failedAttempts = 0;
+    lockout.lockedUntil = null;
 
     res.json({ success: true, message: "OTP verified successfully." });
   } catch (err) {
